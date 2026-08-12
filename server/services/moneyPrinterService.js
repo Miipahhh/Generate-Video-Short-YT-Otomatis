@@ -97,11 +97,38 @@ class MoneyPrinterService {
   }
 
   /**
+   * Unduhan footage dari Pexels/Pixabay cukup sering meleset: file clip sementara turun
+   * 0 byte, lalu MoneyPrinterTurbo langsung membatalkan seluruh task. Dari pengamatan,
+   * mengulang task yang sama persis biasanya langsung berhasil. Jadi sekali percobaan ulang
+   * dilakukan otomatis di sini — bukan menurunkan mutu hasil seperti fallback ke template,
+   * cuma mencoba lagi hal yang sama.
+   */
+  async generateVideo(options) {
+    const MAKS_PERCOBAAN = 2;
+    let errorTerakhir;
+
+    for (let percobaan = 1; percobaan <= MAKS_PERCOBAAN; percobaan++) {
+      try {
+        return await this.attemptGenerateVideo(options);
+      } catch (err) {
+        errorTerakhir = err;
+        // Server mati bukan masalah sesaat — mengulang cuma menunda pesan errornya.
+        if (err.message.includes('tidak terjangkau')) break;
+        if (percobaan < MAKS_PERCOBAAN) {
+          console.warn(`[MoneyPrinterTurbo] Percobaan ${percobaan} gagal: ${err.message} — mencoba ulang sekali.`);
+        }
+      }
+    }
+
+    throw errorTerakhir;
+  }
+
+  /**
    * Kirim naskah narasi yang SUDAH digenerate Hermes AI ke MoneyPrinterTurbo (field
    * video_script), supaya MPT tidak menulis ulang naskahnya sendiri — MPT hanya bertugas
    * mencocokkan footage stok, mensintesis suara (edge-tts internal), dan membakar subtitle.
    */
-  async generateVideo({ title, narration, scenes, durationSeconds, ttsVoice, ttsRate }) {
+  async attemptGenerateVideo({ title, narration, scenes, durationSeconds, ttsVoice, ttsRate }) {
     const alive = await this.pingServer();
     if (!alive) {
       throw new Error(`Server MoneyPrinterTurbo tidak terjangkau di ${this.endpoint}. Jalankan start-moneyprinter.bat dulu.`);
@@ -178,7 +205,11 @@ class MoneyPrinterService {
           this.currentTask = { taskId, percent: lastTask.progress, startedAt };
         }
         if (lastTask.state === TASK_STATE_FAILED) {
-          throw new Error(`MoneyPrinterTurbo gagal generate video (task ${taskId}).`);
+          throw new Error(
+            `MoneyPrinterTurbo membatalkan task ${taskId} di ${lastTask.progress ?? '?'}%. ` +
+            'Penyebab paling sering: satu footage gagal diunduh dari Pexels/Pixabay sehingga ' +
+            'file clip sementara kosong. Cek jendela MoneyPrinterTurbo untuk pesan aslinya.'
+          );
         }
         if (lastTask.state === TASK_STATE_COMPLETE && lastTask.videos?.length) break;
       }

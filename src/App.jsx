@@ -57,11 +57,22 @@ export default function App() {
   }, []);
 
   const handleShortCreated = (newShort) => {
-    toast.success(newShort.title, {
-      title: 'Video short selesai dibuat',
-      url: newShort.uploadResult?.youtubeShortsUrl,
-      duration: 8000
-    });
+    const upload = newShort.uploadResult;
+
+    // Video bisa selesai dirender tapi gagal diupload (izin Google kedaluwarsa, kuota habis).
+    // Kasus itu diberi tahu apa adanya, bukan disamarkan jadi notifikasi sukses.
+    if (upload && upload.success === false) {
+      toast.error(upload.error || 'Video berhasil dirender, tapi gagal diupload ke YouTube.', {
+        title: 'Upload YouTube gagal',
+        duration: 14000
+      });
+    } else {
+      toast.success(newShort.title, {
+        title: 'Video short selesai dibuat',
+        url: upload?.youtubeShortsUrl,
+        duration: 8000
+      });
+    }
     fetchStatus();
   };
 

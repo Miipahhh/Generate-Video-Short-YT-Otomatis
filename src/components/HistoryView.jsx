@@ -110,6 +110,7 @@ export default function HistoryView() {
                     </span>
                     <span>{item.type === 'MANUAL_STUDIO' ? 'Manual' : 'Otomatis'}</span>
                     {!url && <span>MP4 tidak tersedia</span>}
+                    {item.uploadResult?.success === false && <span>belum terupload</span>}
                     {youtubeUrl && (
                       <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">
                         YouTube <ExternalLink size={11} style={{ verticalAlign: -1 }} />

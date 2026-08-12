@@ -179,7 +179,28 @@ class YouTubeService {
       try {
         return await this.realUpload({ title, description, tags: tagArray, privacyStatus, videoData });
       } catch (error) {
-        console.error('Upload asli ke YouTube gagal, fallback ke simulasi:', error.response?.data || error.message);
+        const detail = error.response?.data;
+        console.error('Upload asli ke YouTube gagal:', detail || error.message);
+
+        // Akun SUDAH tersambung tapi upload gagal — jangan pura-pura berhasil. Dulu kasus ini
+        // ikut jatuh ke hasil simulasi, sehingga riwayat mencatat "berhasil" lengkap dengan
+        // link YouTube palsu yang kalau diklik cuma menuju video yang tidak ada.
+        // Videonya sendiri tetap ada di lokal, jadi kerja render tidak terbuang.
+        return {
+          success: false,
+          videoId: null,
+          youtubeShortsUrl: null,
+          localVideoUrl: videoData?.videoUrl || null,
+          localDownloadUrl: videoData?.downloadUrl || null,
+          title,
+          description,
+          tags: tagArray,
+          privacyStatus,
+          uploadedAt: null,
+          channelName: this.channelName,
+          uploadMode: 'GAGAL — video tersimpan lokal, belum masuk YouTube',
+          error: this.describeUploadError(detail, error.message)
+        };
       }
     }
 
@@ -200,6 +221,30 @@ class YouTubeService {
         ? 'Simulated (upload asli gagal — cek log server)'
         : 'Sandbox Simulated Upload (Hubungkan dengan Google di tab Pengaturan untuk upload asli)'
     };
+  }
+
+  /**
+   * Terjemahkan error mentah Google jadi kalimat yang langsung memberi tahu apa yang harus
+   * dilakukan. "invalid_grant" paling sering muncul dan pesan aslinya cuma "Bad Request",
+   * yang sama sekali tidak memberi petunjuk.
+   */
+  describeUploadError(detail, fallbackMessage) {
+    const kode = detail?.error?.errors?.[0]?.reason || detail?.error || '';
+    const pesanGoogle = detail?.error?.message || detail?.error_description || '';
+
+    if (kode === 'invalid_grant') {
+      return 'Izin Google sudah tidak berlaku (invalid_grant). Buka tab Pengaturan lalu klik ' +
+        '"Hubungkan Google" sekali lagi. Ini normal terjadi kalau OAuth consent screen masih ' +
+        'berstatus Testing, karena Google membatasi masa berlaku izinnya sekitar 7 hari.';
+    }
+    if (kode === 'quotaExceeded' || kode === 'uploadLimitExceeded') {
+      return 'Kuota upload YouTube API hari ini habis. Coba lagi besok setelah kuota direset.';
+    }
+    if (kode === 'forbidden' || kode === 'insufficientPermissions') {
+      return 'Akun Google tersambung tapi tidak punya izin upload. Pastikan scope youtube.upload ' +
+        'disetujui dan channel-nya benar, lalu hubungkan ulang.';
+    }
+    return pesanGoogle || fallbackMessage || 'Penyebab tidak diketahui.';
   }
 
   /** Resumable upload sungguhan ke YouTube Data API v3 */
