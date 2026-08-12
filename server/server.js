@@ -78,6 +78,22 @@ app.post('/api/ai/fact-check', async (req, res) => {
   }
 });
 
+// Revisi naskah supaya klaim bermasalah dari cek fakta diperbaiki, tanpa menulis ulang
+// seluruh naskah dari nol.
+app.post('/api/ai/fix-narration', async (req, res) => {
+  try {
+    const { title, description, tags, narration, durationSeconds, scenes, claims, topic } = req.body;
+    const revised = await aiService.reviseNarrationForFactCheck(
+      { title, description, tags, narration, durationSeconds, scenes },
+      claims,
+      topic
+    );
+    res.json({ success: true, data: revised });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Progres render yang sedang berjalan. Hanya MoneyPrinterTurbo yang melaporkan angka
 // sungguhan; renderer lain balas active:false dan UI memakai perkiraan dari waktu berjalan.
 app.get('/api/render/progress', (req, res) => {

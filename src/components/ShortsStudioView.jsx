@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, Dices, Download, ShieldCheck } from 'lucide-react';
+import { Copy, Dices, Download, ShieldCheck, Wand2 } from 'lucide-react';
 import { toast } from '../lib/toast.js';
 import { useStudioState } from '../lib/useStudioState.js';
 import {
@@ -17,7 +17,9 @@ import {
   randomizeTopic,
   generateScript,
   renderAndUpload,
-  factCheckScript
+  factCheckScript,
+  applyFactCheckFixes,
+  getProblemClaims
 } from '../lib/studioStore.js';
 import ProgressBar from './ui/ProgressBar.jsx';
 
@@ -44,9 +46,11 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
   const studio = useStudioState();
   const {
     topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
-    isRandomizing, isGenerating, isRendering, isFactChecking,
+    isRandomizing, isGenerating, isRendering, isFactChecking, isFixingNarration,
     result, videoUrl, fallbackReason, factCheck
   } = studio;
+
+  const problemClaims = factCheck ? getProblemClaims() : [];
 
   // Niche/tone bisa datang dari usulan AI di luar daftar bawaan — tetap tampilkan sebagai opsi.
   const nicheOptions = NICHES.includes(niche) ? NICHES : [niche, ...NICHES];
@@ -273,6 +277,20 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
               )}
 
               {factCheck.overallNote && <p className="hint" style={{ marginTop: 10 }}>{factCheck.overallNote}</p>}
+
+              {problemClaims.length > 0 && (
+                <button
+                  type="button"
+                  className="btn sm"
+                  style={{ marginTop: 10 }}
+                  onClick={applyFactCheckFixes}
+                  disabled={isFixingNarration}
+                >
+                  {isFixingNarration
+                    ? (<><span className="spinner" />Memperbaiki naskah…</>)
+                    : (<><Wand2 size={13} /> Perbaiki {problemClaims.length} klaim bermasalah</>)}
+                </button>
+              )}
             </div>
           )}
 

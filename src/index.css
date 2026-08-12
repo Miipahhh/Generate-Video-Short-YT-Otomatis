@@ -124,6 +124,17 @@ code {
     animation-duration: 0.001ms !important;
     transition-duration: 0.001ms !important;
   }
+
+  /* Spinner & kilatan sweep di progress bar adalah indikator FUNGSIONAL (satu-satunya
+     tanda proses masih berjalan, bukan macet), bukan animasi hiasan — jadi dikecualikan
+     dari aturan di atas. Membekukannya justru menghilangkan informasi penting, bukan
+     cuma mengurangi gerakan yang tidak perlu. */
+  .spinner {
+    animation-duration: 0.7s !important;
+  }
+  .progress-fill.running::after {
+    animation-duration: 1.6s !important;
+  }
 }
 
 /* ============================== APP SHELL ============================== */

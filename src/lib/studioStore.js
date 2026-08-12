@@ -81,6 +81,7 @@ let state = {
   isGenerating: false,
   isRendering: false,
   isFactChecking: false,
+  isFixingNarration: false,
 
   result: null,
   videoUrl: null,
@@ -228,5 +229,41 @@ export async function factCheckScript() {
     toast.error(error.response?.data?.message || 'Gagal menjalankan cek fakta.');
   } finally {
     setState({ isFactChecking: false });
+  }
+}
+
+/** Klaim yang perlu diperbaiki dari hasil cek fakta terakhir — dipakai untuk menampilkan
+ * tombol "Perbaiki sesuai fakta" hanya kalau memang ada yang perlu diperbaiki. */
+export function getProblemClaims() {
+  return (state.factCheck?.claims || []).filter((c) => c.verdict === 'meragukan' || c.verdict === 'keliru');
+}
+
+// Kirim naskah + klaim bermasalah ke AI, minta direvisi HANYA bagian yang bermasalah
+// (gaya bahasa, urutan, jumlah scene dipertahankan). Hasil cek fakta lama dibuang karena
+// sudah tidak relevan dengan naskah yang baru — user perlu klik "Cek fakta" lagi kalau mau
+// memastikan hasil revisinya sudah bersih, bukan diklaim otomatis "sudah benar" tanpa dicek ulang.
+export async function applyFactCheckFixes() {
+  const problemClaims = getProblemClaims();
+  if (!state.result || problemClaims.length === 0 || state.isFixingNarration) return;
+  setState({ isFixingNarration: true });
+  try {
+    const res = await axios.post('/api/ai/fix-narration', {
+      title: state.result.title,
+      description: state.result.description,
+      tags: state.result.tags,
+      narration: state.result.narration,
+      durationSeconds: state.result.durationSeconds,
+      scenes: state.result.scenes,
+      claims: problemClaims,
+      topic: state.topic
+    });
+    if (res.data?.success) {
+      setState({ result: res.data.data, factCheck: null, videoUrl: null, fallbackReason: null });
+      toast.success('Naskah diperbarui sesuai hasil cek fakta. Cek fakta lagi kalau mau memastikan.', { duration: 5000 });
+    }
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Gagal memperbaiki naskah.');
+  } finally {
+    setState({ isFixingNarration: false });
   }
 }

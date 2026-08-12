@@ -95,9 +95,14 @@ GAYA BAHASA NARASI — PALING PENTING, ini yang bakal dibacakan suara AI, jadi h
 - HARAM pakai klise pembuka: "Tahukah kamu", "Pernahkah kamu", "Di era digital ini", "Siapa sangka", "Mari kita simak", "Tanpa berlama-lama lagi".
 - Hindari kata kaku/formal: "merupakan", "sehingga", "oleh karena itu", "dengan demikian", "sangat luar biasa", "hal tersebut". Ganti dengan versi lisan: "adalah/itu", "jadi", "makanya", "gila sih", "itu".
 - Boleh pakai kata sambung obrolan sesekali di awal kalimat: "Nah", "Tapi", "Soalnya", "Jadi", "Dan anehnya".
-- Jangan mengulang subjek yang sama di tiap kalimat, dan jangan menutup tiap scene dengan kalimat ajakan.
+- Jangan mengulang subjek yang sama di tiap kalimat, dan JANGAN tutup tiap scene dengan kalimat ajakan — kecuali scene paling terakhir (lihat aturan wajib di bawah).
 - Naskah harus mengalir antar scene: kalimat terakhir sebuah scene menyambung ke scene berikutnya, bukan berdiri sendiri-sendiri.
 - JANGAN tulis narasi dengan HURUF KAPITAL SEMUA (kapital semua hanya untuk "captionText" di layar, bukan untuk suara).
+
+WAJIB — SCENE PALING TERAKHIR harus ditutup dengan ajakan subscribe, supaya video tidak berhenti polos begitu saja:
+- Ajakannya singkat dan natural, menyatu dengan gaya bicara naskah (bukan diselipkan tiba-tiba dan berasa template).
+- Pakai kata "subscribe" (bukan "follow" — ini konten YouTube), tapi JANGAN sebut nama akun/channel tertentu, cukup ajakan generik semacam "subscribe biar nggak ketinggalan" atau variasi lain yang cocok sama topiknya.
+- Ini satu-satunya scene yang boleh berisi ajakan — jangan diulang di scene lain.
 
 KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan skema:
 {
@@ -132,12 +137,12 @@ KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan 
       "sceneNumber": 4,
       "timeRange": "00:32 - 00:40",
       "visualDescription": "Tombol subscribe berdenyut neon emas dengan efek partikel kaca",
-      "captionText": "FOLLOW UNTUK TIPS LAINNYA!",
-      "narrationSegment": "Kalau kamu penasaran gimana cara setupnya, tinggal follow. Besok aku bongkar sisanya."
+      "captionText": "SUBSCRIBE BIAR GAK KETINGGALAN!",
+      "narrationSegment": "Kalau kamu penasaran gimana cara setupnya, tinggal subscribe. Besok aku bongkar sisanya."
     }
   ]
 }
-CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat total ${targetSceneGuidance}, dengan jumlah kata di "narration" (gabungan semua narrationSegment) yang cukup panjang untuk dibacakan selama kurang lebih ${exampleDuration} detik (perkirakan ±2.5 kata Indonesia per detik).`;
+CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat total ${targetSceneGuidance}, dengan jumlah kata di "narration" (gabungan semua narrationSegment) yang cukup panjang untuk dibacakan selama kurang lebih ${exampleDuration} detik (perkirakan ±2.5 kata Indonesia per detik). Berapa pun jumlah scene-nya, SCENE PALING TERAKHIR wajib berisi ajakan subscribe seperti dijelaskan di aturan GAYA BAHASA di atas.`;
 
     // Coba panggil API (9Router lokal atau OpenRouter)
     // Untuk localhost 9Router, auth opsional — endpoint local bisa tanpa key
@@ -357,6 +362,82 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     }
   }
 
+  /**
+   * Revisi naskah supaya klaim yang ditandai "meragukan"/"keliru" oleh cek fakta diperbaiki,
+   * TANPA menulis ulang seluruh naskah dari nol — gaya bahasa, urutan, dan jumlah scene tetap
+   * dipertahankan sebisa mungkin, cuma bagian yang bermasalah yang diluruskan/dilunakkan.
+   * Skema output PERSIS sama dengan generateShortContent supaya bisa langsung menggantikan
+   * hasil naskah sebelumnya di frontend tanpa penanganan khusus.
+   */
+  async reviseNarrationForFactCheck({ title, description, tags, narration, durationSeconds, scenes }, claims = [], topic = '') {
+    const problemClaims = (claims || []).filter((c) => c.verdict === 'meragukan' || c.verdict === 'keliru');
+    if (problemClaims.length === 0) {
+      throw new Error('Tidak ada klaim bermasalah untuk diperbaiki.');
+    }
+    if (!narration || !Array.isArray(scenes) || scenes.length === 0) {
+      throw new Error('Naskah tidak lengkap, tidak ada yang bisa direvisi.');
+    }
+
+    const originalJson = JSON.stringify({ title, description, tags, narration, durationSeconds, scenes }, null, 2);
+    const problemList = problemClaims
+      .map((c) => `- "${c.claim}" → ditandai ${c.verdict}${c.note ? `: ${c.note}` : ''}`)
+      .join('\n');
+
+    const prompt = `Kamu adalah editor naskah YouTube Shorts yang teliti. Naskah video berikut (topik: "${topic}") sudah dicek fakta, dan beberapa klaim di dalamnya ditandai bermasalah.
+
+NASKAH ASLI (JSON):
+${originalJson}
+
+KLAIM YANG WAJIB DIPERBAIKI:
+${problemList}
+
+TUGASMU:
+- Perbaiki HANYA kalimat yang mengandung klaim bermasalah di atas — luruskan, lunakkan (tambah kata seperti "diperkirakan", "sebagian", "menurut sejumlah sumber"), atau ganti dengan pernyataan yang lebih akurat, supaya tidak lagi menyesatkan.
+- JANGAN ubah bagian naskah lain yang tidak disebut di atas. Pertahankan gaya bahasa, urutan cerita, dan JUMLAH SCENE yang sama persis (jumlah item di "scenes" harus sama dengan aslinya, sceneNumber & timeRange tetap sama).
+- Title/description/tags boleh disesuaikan HANYA kalau memuat klaim yang sama persis; kalau tidak, biarkan sama persis seperti aslinya.
+- Tetap ikuti gaya bahasa lisan santai seperti naskah aslinya (kalimat pendek-panjang berselang, tanpa klise, tanpa HURUF KAPITAL SEMUA di narasi), dan scene terakhir tetap ditutup ajakan subscribe generik seperti sebelumnya.
+
+KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NASKAH ASLI di atas (title, description, tags, narration, durationSeconds, scenes[] dengan sceneNumber/timeRange/visualDescription/captionText/narrationSegment).`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    const callModel = async (model, timeout) => {
+      const response = await axios.post(
+        `${this.apiEndpoint}/chat/completions`,
+        {
+          model,
+          messages: [
+            { role: 'system', content: 'You are a careful script editor. Always return valid JSON only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.4,
+          max_tokens: 8000,
+          stream: false
+        },
+        { headers, timeout }
+      );
+      const rawContent = response.data?.choices?.[0]?.message?.content || '';
+      return this.parseAiJson(rawContent);
+    };
+
+    // Pola percobaan-ulang yang sama seperti factCheckNarration — model combo 9Router kadang
+    // menabrak provider yang lagi tidak tersedia di satu percobaan.
+    try {
+      const parsed = await callModel(this.model, 180000);
+      return { ...parsed, generatedBy: `${this.model} via 9Router (direvisi sesuai cek fakta)`, generatedAt: new Date().toISOString() };
+    } catch (error) {
+      console.warn('Revisi naskah gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+      try {
+        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+        const parsed = await callModel(fallbackModel, 180000);
+        return { ...parsed, generatedBy: `${fallbackModel} via 9Router (direvisi sesuai cek fakta, percobaan ke-2)`, generatedAt: new Date().toISOString() };
+      } catch (error2) {
+        throw new Error(`Gagal merevisi naskah: ${this.describeAxiosError(error2)}`);
+      }
+    }
+  }
+
   /** Ekstrak pesan error yang berguna dari axios error (timeout, connection refused, body API, dll) */
   describeAxiosError(err) {
     if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
@@ -490,8 +571,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Dan begitulah kisah ini akhirnya selesai — jauh lebih berkesan dari yang siapa pun bayangkan di awal.`
         ],
         ctas: [
-          `Kalau kamu suka cerita kayak gini, follow biar nggak ketinggalan part selanjutnya!`,
-          `Komen di bawah menurut kamu endingnya gimana, ya!`
+          `Kalau kamu suka cerita kayak gini, subscribe biar nggak ketinggalan part selanjutnya!`,
+          `Komen di bawah menurut kamu endingnya gimana, terus subscribe biar gak ketinggalan part lain!`
         ]
       },
       mystery: {
@@ -516,8 +597,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Satu hal yang pasti: cerita ini nggak akan berhenti dibicarakan dalam waktu dekat.`
         ],
         ctas: [
-          `Menurut kamu ini kebetulan atau ada penjelasan lain? Tulis di komentar.`,
-          `Follow kalau kamu suka cerita-cerita yang bikin penasaran kayak gini!`
+          `Menurut kamu ini kebetulan atau ada penjelasan lain? Tulis di komentar, dan subscribe biar gak ketinggalan.`,
+          `Subscribe kalau kamu suka cerita-cerita yang bikin penasaran kayak gini!`
         ]
       },
       motivation: {
@@ -542,8 +623,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Pada akhirnya, yang membedakan bukan siapa yang paling pintar, tapi siapa yang paling konsisten menjalankannya.`
         ],
         ctas: [
-          `Simpan video ini buat pengingat, dan follow buat tips lainnya!`,
-          `Kalau ini bermanfaat, share ke orang yang butuh dengar ini juga.`
+          `Simpan video ini buat pengingat, dan subscribe buat tips lainnya!`,
+          `Kalau ini bermanfaat, share ke orang yang butuh dengar ini juga — subscribe juga biar gak ketinggalan.`
         ]
       },
       relationship: {
@@ -568,8 +649,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Dan itu jugalah yang akhirnya bikin sebuah hubungan terasa layak diperjuangkan.`
         ],
         ctas: [
-          `Share ke pasangan kamu kalau ini related banget!`,
-          `Follow buat pembahasan hubungan yang relate lainnya.`
+          `Share ke pasangan kamu kalau ini related banget, dan subscribe biar gak ketinggalan.`,
+          `Subscribe buat pembahasan hubungan yang relate lainnya.`
         ]
       },
       facts: {
@@ -594,8 +675,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Sekarang kamu tahu faktanya — tinggal kamu pilih mau pakai informasi ini buat apa.`
         ],
         ctas: [
-          `Follow buat fakta-fakta menarik lainnya tiap hari!`,
-          `Share ke temanmu yang juga perlu tahu fakta ini.`
+          `Subscribe buat fakta-fakta menarik lainnya tiap hari!`,
+          `Share ke temanmu yang juga perlu tahu fakta ini — subscribe juga biar gak ketinggalan.`
         ]
       }
     };
@@ -608,11 +689,11 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     const cta = this.pick(bank.ctas);
 
     const captionSets = {
-      fiction: ['CERITA INI NYATA?!', 'SEMUA BERUBAH DI SINI', 'TWIST-NYA GA NYANGKA', 'INILAH AKHIRNYA', 'FOLLOW BUAT LANJUTANNYA'],
-      mystery: ['MASIH JADI MISTERI', 'SEMAKIN ANEH DIGALI', 'BELUM ADA JAWABAN PASTI', 'FAKTANYA SAMPAI SEKARANG', 'MENURUTMU GIMANA?'],
-      motivation: ['INI BEDANYA', 'BUKAN SOAL BAKAT', 'HASILNYA KELIHATAN CEPAT', 'MULAI DARI SEKARANG', 'SIMPAN & FOLLOW'],
-      relationship: ['SERING DIABAIKAN', 'AKAR MASALAHNYA DI SINI', 'HUBUNGAN JADI BEDA', 'INTINYA SEPERTI INI', 'SHARE KE PASANGANMU'],
-      facts: ['FAKTA MENGEJUTKAN', 'INI ALASANNYA', 'DAMPAKNYA LEBIH BESAR', 'JADI KESIMPULANNYA', 'FOLLOW UNTUK FAKTA LAINNYA']
+      fiction: ['CERITA INI NYATA?!', 'SEMUA BERUBAH DI SINI', 'TWIST-NYA GA NYANGKA', 'INILAH AKHIRNYA', 'SUBSCRIBE BUAT LANJUTANNYA'],
+      mystery: ['MASIH JADI MISTERI', 'SEMAKIN ANEH DIGALI', 'BELUM ADA JAWABAN PASTI', 'FAKTANYA SAMPAI SEKARANG', 'SUBSCRIBE, MENURUTMU GIMANA?'],
+      motivation: ['INI BEDANYA', 'BUKAN SOAL BAKAT', 'HASILNYA KELIHATAN CEPAT', 'MULAI DARI SEKARANG', 'SIMPAN & SUBSCRIBE'],
+      relationship: ['SERING DIABAIKAN', 'AKAR MASALAHNYA DI SINI', 'HUBUNGAN JADI BEDA', 'INTINYA SEPERTI INI', 'SHARE & SUBSCRIBE'],
+      facts: ['FAKTA MENGEJUTKAN', 'INI ALASANNYA', 'DAMPAKNYA LEBIH BESAR', 'JADI KESIMPULANNYA', 'SUBSCRIBE UNTUK FAKTA LAINNYA']
     };
     const captions = captionSets[mode];
 
