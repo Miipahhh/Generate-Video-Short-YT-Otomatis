@@ -1,0 +1,41 @@
+# Logs
+logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+node_modules
+dist
+dist-ssr
+*.local
+
+# Environment variables
+.env
+.env.local
+
+# Local persisted database (contains AI/OpenRouter API keys and YouTube
+# OAuth client secrets in plaintext) — never commit this
+server/data/
+
+# Generated video output (rendered per-request, not source) and cached
+# background images downloaded by the renderer — keep the folder, not its contents
+public/videos/*
+!public/videos/.gitkeep
+
+# MoneyPrinterTurbo is an external project cloned locally by start-moneyprinter.bat
+# (its own git repo) — never commit it as part of this project
+/MoneyPrinterTurbo/
+
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?

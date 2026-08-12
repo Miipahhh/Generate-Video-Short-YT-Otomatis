@@ -1,0 +1,102 @@
+import React from 'react';
+
+function formatNextRun(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleString('id-ID', {
+    weekday: 'long',
+    day: 'numeric',
+    month: 'short',
+    hour: '2-digit',
+    minute: '2-digit'
+  });
+}
+
+export default function DashboardView({ systemStatus, onNavigate }) {
+  const scheduler = systemStatus?.schedulerConfig;
+  const youtube = systemStatus?.youtubeStatus;
+  const queue = scheduler?.topicQueue?.filter((t) => t.status !== 'COMPLETED') || [];
+
+  const stats = [
+    {
+      label: 'Short dibuat',
+      value: systemStatus ? systemStatus.totalShortsCreated : '—'
+    },
+    {
+      label: 'YouTube',
+      value: youtube?.isOAuthConnected ? 'Terhubung' : 'Sandbox',
+      note: youtube?.isOAuthConnected ? youtube.channelName : 'Upload masih simulasi'
+    },
+    {
+      label: 'Jadwal berikutnya',
+      value: scheduler?.isAutoPilotEnabled ? formatNextRun(scheduler.nextScheduledRun) : 'Nonaktif',
+      note: scheduler?.isAutoPilotEnabled ? 'Senin, Rabu, Jumat 18:00' : 'Auto-pilot dimatikan'
+    },
+    {
+      label: 'Model AI',
+      value: systemStatus?.aiConfig?.model || '—',
+      note: systemStatus?.aiConfig?.apiEndpoint
+    }
+  ];
+
+  return (
+    <div>
+      <div className="page-head head-row">
+        <div>
+          <h1 className="page-title">Dasbor</h1>
+          <p className="page-sub">Ringkasan status studio, jadwal, dan antrean topik.</p>
+        </div>
+        <button className="btn primary" onClick={() => onNavigate('studio')}>
+          Buat short baru
+        </button>
+      </div>
+
+      {!systemStatus && (
+        <div className="note" style={{ marginBottom: 16 }}>
+          Backend belum terhubung. Jalankan <code>npm run dev</code> lalu muat ulang halaman.
+        </div>
+      )}
+
+      <div className="stats">
+        {stats.map((stat) => (
+          <div key={stat.label} className="stat">
+            <div className="stat-label">{stat.label}</div>
+            <div className="stat-value">{stat.value}</div>
+            {stat.note && <div className="stat-note">{stat.note}</div>}
+          </div>
+        ))}
+      </div>
+
+      <div className="card" style={{ marginTop: 16 }}>
+        <div className="card-head head-row">
+          <div>
+            <h2 className="card-title">Antrean topik</h2>
+            <p className="card-sub">
+              {scheduler?.isAutoPilotEnabled
+                ? 'Auto-pilot mengambil topik teratas setiap jadwal.'
+                : 'Auto-pilot nonaktif, antrean tidak dijalankan otomatis.'}
+            </p>
+          </div>
+          <button className="btn" onClick={() => onNavigate('scheduler')}>Kelola jadwal</button>
+        </div>
+
+        {queue.length === 0 ? (
+          <div className="empty">
+            Antrean kosong. Kalau jadwal tiba, sistem meminta topik acak dari AI.
+          </div>
+        ) : (
+          <div className="list">
+            {queue.slice(0, 5).map((item, idx) => (
+              <div key={item.id} className="list-item">
+                <span className="index">{idx + 1}</span>
+                <div className="list-item-main" style={{ flex: 1 }}>
+                  <div className="list-item-title">{item.topic}</div>
+                  <div className="list-item-meta">{item.niche}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
