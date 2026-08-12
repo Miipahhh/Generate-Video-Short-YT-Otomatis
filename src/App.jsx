@@ -175,7 +175,13 @@ export default function App() {
 
       <main className="page">
         {activeTab === 'dashboard' && <DashboardView systemStatus={systemStatus} onNavigate={setActiveTab} />}
-        {activeTab === 'studio' && <ShortsStudioView onShortCreated={handleShortCreated} />}
+        {activeTab === 'studio' && (
+          <ShortsStudioView
+            onShortCreated={handleShortCreated}
+            genProgress={genProgress}
+            renderProgress={renderProgress}
+          />
+        )}
         {activeTab === 'scheduler' && <SchedulerView onShortCreated={handleShortCreated} />}
         {activeTab === 'history' && <HistoryView />}
         {activeTab === 'settings' && <SettingsView onSaved={fetchStatus} />}

@@ -7,7 +7,6 @@ import {
   TONES,
   THEMES,
   DURATION_OPTIONS,
-  RENDER_PACE,
   setTopic,
   setNiche,
   setTone,
@@ -20,7 +19,6 @@ import {
   renderAndUpload,
   factCheckScript
 } from '../lib/studioStore.js';
-import { useProgress } from '../lib/useProgress.js';
 import ProgressBar from './ui/ProgressBar.jsx';
 
 const VERDICT_LABEL = {
@@ -37,19 +35,18 @@ const VERDICT_CLASS = {
   tidak_bisa_dipastikan: 'muted'
 };
 
-export default function ShortsStudioView({ onShortCreated }) {
+// genProgress & renderProgress dioper dari App.jsx (bukan dihitung sendiri di sini) supaya
+// timernya tidak reset tiap komponen ini di-mount ulang — itu terjadi setiap kali user buka
+// tab Studio, karena App.jsx me-mount/unmount komponen ini tiap ganti tab. App.jsx sendiri
+// tidak pernah unmount selama sesi berjalan, jadi progres yang dihitung di sana aman dipakai
+// bersama oleh bar di halaman ini maupun pill status yang tampil di halaman lain.
+export default function ShortsStudioView({ onShortCreated, genProgress, renderProgress }) {
   const studio = useStudioState();
   const {
     topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
     isRandomizing, isGenerating, isRendering, isFactChecking,
     result, videoUrl, fallbackReason, factCheck
   } = studio;
-
-  const genProgress = useProgress(isGenerating, { tau: 45 });
-  const renderProgress = useProgress(isRendering, {
-    tau: RENDER_PACE[videoProvider] || RENDER_PACE.template,
-    poll: true
-  });
 
   // Niche/tone bisa datang dari usulan AI di luar daftar bawaan — tetap tampilkan sebagai opsi.
   const nicheOptions = NICHES.includes(niche) ? NICHES : [niche, ...NICHES];
