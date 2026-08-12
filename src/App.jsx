@@ -66,6 +66,12 @@ export default function App() {
         title: 'Upload YouTube gagal',
         duration: 14000
       });
+    } else if (!upload) {
+      // User memilih render saja, jadi jangan sampai notifikasinya terkesan sudah diupload.
+      toast.success(`${newShort.title} — tersimpan lokal, tidak diupload.`, {
+        title: 'Video selesai dirender',
+        duration: 8000
+      });
     } else {
       toast.success(newShort.title, {
         title: 'Video short selesai dibuat',

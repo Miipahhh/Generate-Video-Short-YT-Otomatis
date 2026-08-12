@@ -46,7 +46,9 @@ export default function ShortsStudioView({ onShortCreated }) {
   const [niche, setNiche] = useState(initial.niche);
   const [tone, setTone] = useState(initial.tone);
   const [themeId, setThemeId] = useState('cyberpunk');
-  const [privacyStatus, setPrivacyStatus] = useState('public');
+  // Default sengaja "none" alias render saja: mengunggah ke channel YouTube asli itu langkah
+  // yang tidak bisa ditarik balik, jadi harus dipilih sadar, bukan kejadian karena lupa ganti.
+  const [privacyStatus, setPrivacyStatus] = useState('none');
   // Tema visual cuma dipakai renderer template FFmpeg (warna caption + gaya gambar AI).
   // Di mode fal.ai / MoneyPrinterTurbo nilainya diabaikan, jadi pilihannya disembunyikan
   // supaya tidak jadi tombol yang kelihatan berpengaruh padahal tidak.
@@ -151,6 +153,7 @@ export default function ShortsStudioView({ onShortCreated }) {
   };
 
   const usedLocalGenerator = Boolean(result?.generatedBy?.includes('tidak terjangkau'));
+  const skipUpload = privacyStatus === 'none';
 
   return (
     <div>
@@ -312,7 +315,7 @@ export default function ShortsStudioView({ onShortCreated }) {
 
           <div className="head-row" style={{ alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <label className="label" htmlFor="privacy" style={{ marginBottom: 0 }}>Privasi</label>
+              <label className="label" htmlFor="privacy" style={{ marginBottom: 0 }}>Setelah render</label>
               <select
                 id="privacy"
                 value={privacyStatus}
@@ -320,14 +323,17 @@ export default function ShortsStudioView({ onShortCreated }) {
                 className="select"
                 style={{ width: 'auto' }}
               >
-                <option value="public">Publik</option>
-                <option value="unlisted">Unlisted</option>
-                <option value="private">Privat</option>
+                <option value="none">Simpan lokal saja</option>
+                <option value="private">Upload privat</option>
+                <option value="unlisted">Upload unlisted</option>
+                <option value="public">Upload publik</option>
               </select>
             </div>
 
             <button onClick={handleRenderAndUpload} disabled={isRendering} className="btn primary">
-              {isRendering ? (<><span className="spinner" />Merender…</>) : 'Render & upload'}
+              {isRendering
+                ? (<><span className="spinner" />Merender…</>)
+                : (skipUpload ? 'Render video' : 'Render & upload')}
             </button>
           </div>
 
@@ -336,7 +342,11 @@ export default function ShortsStudioView({ onShortCreated }) {
               percent={renderProgress.percent}
               elapsed={renderProgress.elapsed}
               isReal={renderProgress.isReal}
-              label={isRendering ? 'Merender & mengupload video' : 'Video selesai'}
+              label={
+                isRendering
+                  ? (skipUpload ? 'Merender video' : 'Merender & mengupload video')
+                  : 'Video selesai'
+              }
             />
           )}
           {isRendering && (
@@ -351,7 +361,9 @@ export default function ShortsStudioView({ onShortCreated }) {
         <div className="card">
           <div className="card-head">
             <h2 className="card-title">Video siap</h2>
-            <p className="card-sub">MP4 vertikal 720x1280.</p>
+            <p className="card-sub">
+              MP4 vertikal 720x1280.{skipUpload ? ' Tersimpan lokal, belum diupload ke YouTube.' : ''}
+            </p>
           </div>
 
           {fallbackReason && (

@@ -105,18 +105,22 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
       durationSeconds: aiContent.durationSeconds
     });
 
-    // 3. Upload ke YouTube Shorts API (non-fatal jika gagal)
+    // 3. Upload ke YouTube Shorts API (non-fatal jika gagal).
+    // privacyStatus 'none' berarti user memilih render saja: videonya cukup tersimpan lokal
+    // dan sama sekali tidak dikirim ke YouTube.
     let uploadResult = null;
-    try {
-      uploadResult = await youtubeService.uploadShort({
-        title: aiContent.title,
-        description: aiContent.description,
-        tags: aiContent.tags,
-        privacyStatus: privacyStatus || 'public',
-        videoData: renderedVideo
-      });
-    } catch (uploadErr) {
-      console.warn('Upload YouTube gagal (non-fatal):', uploadErr.message);
+    if (privacyStatus !== 'none') {
+      try {
+        uploadResult = await youtubeService.uploadShort({
+          title: aiContent.title,
+          description: aiContent.description,
+          tags: aiContent.tags,
+          privacyStatus: privacyStatus || 'public',
+          videoData: renderedVideo
+        });
+      } catch (uploadErr) {
+        console.warn('Upload YouTube gagal (non-fatal):', uploadErr.message);
+      }
     }
 
     const newRecord = {
