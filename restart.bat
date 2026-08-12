@@ -1,40 +1,31 @@
 @echo off
 title AI Shorts Studio - Restart
-echo ========================================
-echo  AI Shorts Studio - Mematikan Server...
-echo ========================================
-echo.
+color 0B
 
-taskkill /F /IM node.exe 2>nul
-timeout /t 2 /nobreak >nul
-
-echo ========================================
-echo  Memulai Ulang...
-echo ========================================
+echo =========================================================================
+echo                       AI SHORTS STUDIO - RESTART
+echo =========================================================================
 echo.
 
 cd /d "%~dp0"
 
-echo [1/3] Menjalankan 9Router (AI lokal, port 20128)...
-echo       Catatan: taskkill di atas ikut mematikan 9Router kalau tadi jalan,
-echo       jadi selalu dibuka ulang di sini.
-start "9Router" cmd /k start-9router.bat
+echo Mematikan proses lama...
+
+rem Dimatikan berdasarkan port yang dipakai, bukan "taskkill /IM node.exe", supaya
+rem aplikasi Node lain milik Anda yang kebetulan sedang jalan tidak ikut mati.
+for %%P in (3001 5173 20128 8080) do (
+    for /f "tokens=5" %%A in ('netstat -ano ^| findstr ":%%P" ^| findstr "LISTENING"') do (
+        echo    - port %%P, PID %%A
+        taskkill /F /PID %%A >nul 2>nul
+    )
+)
+
+rem Jendela pembantu kadang menyisakan proses induk yang sudah tidak menyimak port apa pun.
+taskkill /F /FI "WINDOWTITLE eq 9Router*" >nul 2>nul
+taskkill /F /FI "WINDOWTITLE eq MoneyPrinterTurbo*" >nul 2>nul
+
 timeout /t 2 /nobreak >nul
-
-echo [2/3] Menjalankan Backend Server (port 3001)...
-start "AI-Shorts-Backend" cmd /k "node server/server.js"
-
-timeout /t 3 /nobreak >nul
-
-echo [3/3] Menjalankan Vite Dev Server (port 5173)...
-start "AI-Shorts-Vite" cmd /k "npx vite --host"
-
+echo Selesai. Memulai ulang semuanya...
 echo.
-echo ========================================
-echo  Selesai!
-echo  9Router : http://localhost:20128
-echo  Backend : http://localhost:3001
-echo  Frontend: http://localhost:5173
-echo ========================================
-echo.
-pause
+
+call "%~dp0start.bat"
