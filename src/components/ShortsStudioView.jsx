@@ -1,65 +1,49 @@
-import React, { useState, useEffect } from 'react';
-import { Copy, Dices, Download } from 'lucide-react';
-import axios from 'axios';
+import React from 'react';
+import { Copy, Dices, Download, ShieldCheck } from 'lucide-react';
 import { toast } from '../lib/toast.js';
+import { useStudioState } from '../lib/useStudioState.js';
+import {
+  NICHES,
+  TONES,
+  THEMES,
+  DURATION_OPTIONS,
+  RENDER_PACE,
+  setTopic,
+  setNiche,
+  setTone,
+  setThemeId,
+  setPrivacyStatus,
+  setTargetDuration,
+  patchResult,
+  randomizeTopic,
+  generateScript,
+  renderAndUpload,
+  factCheckScript
+} from '../lib/studioStore.js';
 import { useProgress } from '../lib/useProgress.js';
 import ProgressBar from './ui/ProgressBar.jsx';
 
-// Perkiraan lama proses (detik) untuk mengatur laju bar. Angkanya sengaja beda per sumber
-// video karena bedanya jauh: template FFmpeg hitungan detik, MoneyPrinterTurbo bisa
-// belasan menit. Khusus MoneyPrinterTurbo, bar nanti dioper ke progres asli dari servernya.
-const RENDER_PACE = {
-  template: 25,
-  fal_ai: 70,
-  moneyprinter: 240
+const VERDICT_LABEL = {
+  akurat: 'Akurat',
+  meragukan: 'Meragukan',
+  keliru: 'Keliru',
+  tidak_bisa_dipastikan: 'Tidak bisa dipastikan'
 };
 
-// Bank topik lintas genre — dipakai sebagai topik awal dan cadangan tombol "Ide acak"
-// kalau AI tidak terjangkau.
-const TOPIC_BANK = [
-  { topic: 'Fakta AI yang bakal ganti pekerjaan manusia', niche: 'Teknologi & AI', tone: 'Energik & viral' },
-  { topic: 'Misteri rumah kosong yang tak pernah terpecahkan', niche: 'Misteri & horor', tone: 'Misterius' },
-  { topic: 'Cerita singkat: surat dari masa depan', niche: 'Cerita fiksi pendek', tone: 'Misterius' },
-  { topic: 'Kenapa orang susah mengaku salah', niche: 'Psikologi & fakta sosial', tone: 'Santai' },
-  { topic: 'Fakta sejarah yang sengaja ditutupi', niche: 'Sejarah tersembunyi', tone: 'Misterius' },
-  { topic: 'Kesalahan keuangan yang bikin orang tetap miskin', niche: 'Keuangan & investasi', tone: 'Energik & viral' },
-  { topic: 'Kebiasaan kecil yang diam-diam merusak kesehatan', niche: 'Kesehatan & sains', tone: 'Santai' },
-  { topic: 'Hewan dengan kemampuan bertahan hidup paling gila', niche: 'Hewan & alam liar', tone: 'Energik & viral' },
-  { topic: 'Teori konspirasi yang ternyata ada benarnya', niche: 'Konspirasi & urban legend', tone: 'Dramatis' },
-  { topic: 'Kebiasaan orang sukses sebelum jam 8 pagi', niche: 'Motivasi & karir', tone: 'Energik & viral' }
-];
-
-const NICHES = [...new Set(TOPIC_BANK.map((t) => t.niche))];
-const TONES = ['Energik & viral', 'Misterius', 'Santai', 'Dramatis'];
-const THEMES = [
-  { id: 'cyberpunk', label: 'Cyberpunk' },
-  { id: 'tech_dark', label: 'Tech gelap' },
-  { id: 'luxury_gold', label: 'Luxury gold' },
-  { id: 'gaming_emerald', label: 'Emerald' }
-];
-
-const randomPick = () => TOPIC_BANK[Math.floor(Math.random() * TOPIC_BANK.length)];
+const VERDICT_CLASS = {
+  akurat: 'success',
+  meragukan: 'warn',
+  keliru: 'danger',
+  tidak_bisa_dipastikan: 'muted'
+};
 
 export default function ShortsStudioView({ onShortCreated }) {
-  const [initial] = useState(randomPick);
-  const [topic, setTopic] = useState(initial.topic);
-  const [niche, setNiche] = useState(initial.niche);
-  const [tone, setTone] = useState(initial.tone);
-  const [themeId, setThemeId] = useState('cyberpunk');
-  // Default sengaja "none" alias render saja: mengunggah ke channel YouTube asli itu langkah
-  // yang tidak bisa ditarik balik, jadi harus dipilih sadar, bukan kejadian karena lupa ganti.
-  const [privacyStatus, setPrivacyStatus] = useState('none');
-  // Tema visual cuma dipakai renderer template FFmpeg (warna caption + gaya gambar AI).
-  // Di mode fal.ai / MoneyPrinterTurbo nilainya diabaikan, jadi pilihannya disembunyikan
-  // supaya tidak jadi tombol yang kelihatan berpengaruh padahal tidak.
-  const [videoProvider, setVideoProvider] = useState('template');
-
-  const [isRandomizing, setIsRandomizing] = useState(false);
-  const [isGenerating, setIsGenerating] = useState(false);
-  const [isRendering, setIsRendering] = useState(false);
-  const [result, setResult] = useState(null);
-  const [videoUrl, setVideoUrl] = useState(null);
-  const [fallbackReason, setFallbackReason] = useState(null);
+  const studio = useStudioState();
+  const {
+    topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
+    isRandomizing, isGenerating, isRendering, isFactChecking,
+    result, videoUrl, fallbackReason, factCheck
+  } = studio;
 
   const genProgress = useProgress(isGenerating, { tau: 45 });
   const renderProgress = useProgress(isRendering, {
@@ -67,83 +51,9 @@ export default function ShortsStudioView({ onShortCreated }) {
     poll: true
   });
 
-  useEffect(() => {
-    axios
-      .get('/api/settings')
-      .then((res) => {
-        const provider = res.data?.data?.videoConfig?.provider;
-        if (provider) setVideoProvider(provider);
-      })
-      .catch(() => {});
-  }, []);
-
-  // Niche bisa datang dari usulan AI di luar daftar bawaan — tetap tampilkan sebagai opsi.
+  // Niche/tone bisa datang dari usulan AI di luar daftar bawaan — tetap tampilkan sebagai opsi.
   const nicheOptions = NICHES.includes(niche) ? NICHES : [niche, ...NICHES];
   const toneOptions = TONES.includes(tone) ? TONES : [tone, ...TONES];
-
-  // Hanya menghasilkan naskah & metadata. Render dan upload adalah langkah terpisah
-  // di bawah, supaya user yang menentukan kapan video benar-benar dibuat.
-  const handleGenerate = async () => {
-    setIsGenerating(true);
-    setVideoUrl(null);
-    setFallbackReason(null);
-    try {
-      const res = await axios.post('/api/ai/generate', { topic, niche, tone });
-      if (res.data?.success) setResult(res.data.data);
-    } catch (error) {
-      toast.error('Gagal generate naskah. Pastikan server backend berjalan.');
-    } finally {
-      setIsGenerating(false);
-    }
-  };
-
-  const handleRandomTopic = async () => {
-    setIsRandomizing(true);
-    try {
-      const res = await axios.post('/api/ai/random-topic');
-      const s = res.data?.success ? res.data.data : null;
-      const pick = randomPick();
-      setTopic(s?.topic || pick.topic);
-      setNiche(s?.niche || pick.niche);
-      setTone(s?.tone || pick.tone);
-    } catch (error) {
-      const pick = randomPick();
-      setTopic(pick.topic);
-      setNiche(pick.niche);
-      setTone(pick.tone);
-    } finally {
-      setIsRandomizing(false);
-    }
-  };
-
-  const handleRenderAndUpload = async () => {
-    if (!result) return;
-    setIsRendering(true);
-    try {
-      const res = await axios.post('/api/shorts/create-and-upload', {
-        topic,
-        niche,
-        title: result.title,
-        description: result.description,
-        tags: result.tags,
-        narration: result.narration,
-        scenes: result.scenes,
-        themeId,
-        privacyStatus
-      });
-
-      if (res.data?.success) {
-        const data = res.data.data;
-        setVideoUrl(data.renderedVideo?.videoUrl || data.uploadResult?.localVideoUrl || null);
-        setFallbackReason(data.renderedVideo?.aiVideoFallbackReason || null);
-        if (onShortCreated) onShortCreated(data);
-      }
-    } catch (error) {
-      toast.error(error.response?.data?.message || 'Gagal merender video.');
-    } finally {
-      setIsRendering(false);
-    }
-  };
 
   const copy = (value, label) => {
     const text = Array.isArray(value) ? value.join(', ') : value || '';
@@ -154,6 +64,7 @@ export default function ShortsStudioView({ onShortCreated }) {
 
   const usedLocalGenerator = Boolean(result?.generatedBy?.includes('tidak terjangkau'));
   const skipUpload = privacyStatus === 'none';
+  const isNarrativeNiche = /fiksi|cerita|misteri|horor|konspirasi/i.test(niche);
 
   return (
     <div>
@@ -168,7 +79,7 @@ export default function ShortsStudioView({ onShortCreated }) {
         <div className="field">
           <div className="label-row">
             <label className="label" htmlFor="topic">Topik video</label>
-            <button type="button" className="btn link" onClick={handleRandomTopic} disabled={isRandomizing}>
+            <button type="button" className="btn link" onClick={randomizeTopic} disabled={isRandomizing}>
               {isRandomizing ? 'Mencari ide…' : (<><Dices size={13} style={{ verticalAlign: -2, marginRight: 5 }} />Ide acak</>)}
             </button>
           </div>
@@ -195,18 +106,33 @@ export default function ShortsStudioView({ onShortCreated }) {
               {toneOptions.map((t) => <option key={t} value={t}>{t}</option>)}
             </select>
           </div>
-          {videoProvider === 'template' && (
-            <div>
-              <label className="label" htmlFor="theme">Tema visual</label>
-              <select id="theme" value={themeId} onChange={(e) => setThemeId(e.target.value)} className="select">
-                {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
-              </select>
-              <p className="hint">Warna teks di video & gaya gambar background.</p>
-            </div>
-          )}
+          <div>
+            <label className="label" htmlFor="duration">Target durasi</label>
+            <select
+              id="duration"
+              value={targetDuration}
+              onChange={(e) => setTargetDuration(e.target.value)}
+              className="select"
+            >
+              {DURATION_OPTIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+            {targetDuration === 'random' && (
+              <p className="hint">Tiap klik "Buat naskah" dapat target durasi acak berbeda (±30 detik – 6 menit, tergantung niche).</p>
+            )}
+          </div>
         </div>
 
-        <button onClick={handleGenerate} disabled={isGenerating || !topic.trim()} className="btn primary">
+        {videoProvider === 'template' && (
+          <div className="field" style={{ maxWidth: 260 }}>
+            <label className="label" htmlFor="theme">Tema visual</label>
+            <select id="theme" value={themeId} onChange={(e) => setThemeId(e.target.value)} className="select">
+              {THEMES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+            </select>
+            <p className="hint">Warna teks di video & gaya gambar background.</p>
+          </div>
+        )}
+
+        <button onClick={generateScript} disabled={isGenerating || !topic.trim()} className="btn primary">
           {isGenerating ? (<><span className="spinner" />Membuat naskah…</>) : 'Buat naskah'}
         </button>
 
@@ -256,7 +182,7 @@ export default function ShortsStudioView({ onShortCreated }) {
               id="title"
               type="text"
               value={result.title}
-              onChange={(e) => setResult({ ...result, title: e.target.value })}
+              onChange={(e) => patchResult({ title: e.target.value })}
               className="input"
             />
           </div>
@@ -272,7 +198,7 @@ export default function ShortsStudioView({ onShortCreated }) {
               id="desc"
               rows={3}
               value={result.description}
-              onChange={(e) => setResult({ ...result, description: e.target.value })}
+              onChange={(e) => patchResult({ description: e.target.value })}
               className="textarea"
             />
           </div>
@@ -288,7 +214,7 @@ export default function ShortsStudioView({ onShortCreated }) {
               id="tags"
               type="text"
               value={Array.isArray(result.tags) ? result.tags.join(', ') : result.tags || ''}
-              onChange={(e) => setResult({ ...result, tags: e.target.value.split(',').map((s) => s.trim()) })}
+              onChange={(e) => patchResult({ tags: e.target.value.split(',').map((s) => s.trim()) })}
               className="input"
             />
           </div>
@@ -313,6 +239,48 @@ export default function ShortsStudioView({ onShortCreated }) {
 
           <hr className="divider" />
 
+          <div className="label-row">
+            <label className="label" style={{ marginBottom: 0 }}>Cek fakta naskah</label>
+            <button type="button" className="btn sm" onClick={factCheckScript} disabled={isFactChecking}>
+              {isFactChecking ? (<><span className="spinner" />Memeriksa…</>) : (<><ShieldCheck size={13} /> Cek fakta</>)}
+            </button>
+          </div>
+
+          {isNarrativeNiche && !factCheck && (
+            <p className="hint">Niche ini cenderung cerita fiksi — klaim faktual mungkin memang tidak ada.</p>
+          )}
+
+          {factCheck && (
+            <div style={{ marginTop: 10 }}>
+              <div className="note" style={{ marginBottom: 10 }}>
+                Dicek oleh model AI yang sama (bukan pencarian internet) — anggap sebagai saringan awal,
+                bukan sumber kebenaran akhir. Untuk klaim penting, tetap verifikasi manual.
+              </div>
+
+              {factCheck.claims?.length > 0 ? (
+                <div className="list">
+                  {factCheck.claims.map((c, idx) => (
+                    <div key={idx} className="list-item" style={{ alignItems: 'flex-start' }}>
+                      <div className="list-item-main" style={{ flex: 1 }}>
+                        <div className="list-item-title">{c.claim}</div>
+                        {c.note && <div className="list-item-meta">{c.note}</div>}
+                      </div>
+                      <span className={`fact-verdict ${VERDICT_CLASS[c.verdict] || 'muted'}`}>
+                        {VERDICT_LABEL[c.verdict] || c.verdict}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="empty">Tidak ada klaim faktual spesifik yang terdeteksi di naskah ini.</div>
+              )}
+
+              {factCheck.overallNote && <p className="hint" style={{ marginTop: 10 }}>{factCheck.overallNote}</p>}
+            </div>
+          )}
+
+          <hr className="divider" />
+
           <div className="head-row" style={{ alignItems: 'center' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
               <label className="label" htmlFor="privacy" style={{ marginBottom: 0 }}>Setelah render</label>
@@ -330,7 +298,7 @@ export default function ShortsStudioView({ onShortCreated }) {
               </select>
             </div>
 
-            <button onClick={handleRenderAndUpload} disabled={isRendering} className="btn primary">
+            <button onClick={() => renderAndUpload(onShortCreated)} disabled={isRendering} className="btn primary">
               {isRendering
                 ? (<><span className="spinner" />Merender…</>)
                 : (skipUpload ? 'Render video' : 'Render & upload')}

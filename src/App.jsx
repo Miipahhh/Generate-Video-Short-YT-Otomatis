@@ -10,6 +10,9 @@ import SettingsView from './components/SettingsView.jsx';
 import ToastHost from './components/ui/ToastHost.jsx';
 import ConfirmHost from './components/ui/ConfirmHost.jsx';
 import { toast } from './lib/toast.js';
+import { useStudioState } from './lib/useStudioState.js';
+import { initStudio, RENDER_PACE } from './lib/studioStore.js';
+import { useProgress } from './lib/useProgress.js';
 
 const NAV = [
   { id: 'dashboard', label: 'Dasbor' },
@@ -24,6 +27,23 @@ export default function App() {
   const [systemStatus, setSystemStatus] = useState(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [theme, setTheme] = useState(() => document.documentElement.getAttribute('data-theme') || 'light');
+
+  // State Studio (naskah, render, dst) hidup di luar komponen ShortsStudioView, supaya
+  // tidak reset saat pindah tab. Progres generate/render dihitung SEKALI di sini (bukan di
+  // dalam ShortsStudioView) supaya angkanya konsisten dipakai baik oleh bar di halaman
+  // Studio maupun pill status yang tampil di halaman lain.
+  const studio = useStudioState();
+  const genProgress = useProgress(studio.isGenerating, { tau: 45 });
+  const renderProgress = useProgress(studio.isRendering, {
+    tau: RENDER_PACE[studio.videoProvider] || RENDER_PACE.template,
+    poll: true
+  });
+  const activeStudioProgress = studio.isGenerating ? genProgress : renderProgress;
+  const showStudioPill = activeTab !== 'studio' && (studio.isGenerating || studio.isRendering);
+
+  useEffect(() => {
+    initStudio();
+  }, []);
 
   useEffect(() => {
     document.documentElement.setAttribute('data-theme', theme);
@@ -140,6 +160,18 @@ export default function App() {
 
       <ToastHost />
       <ConfirmHost />
+
+      {/* Studio bisa lagi generate/render sementara user pindah ke halaman lain — pill ini
+          jadi satu-satunya jejak bahwa prosesnya masih jalan, karena kartu progres di
+          halaman Studio sendiri tidak kelihatan selagi tidak sedang dibuka. */}
+      {showStudioPill && (
+        <button className="studio-pill" onClick={() => goTo('studio')}>
+          <span className="spinner" />
+          <span>
+            {studio.isGenerating ? 'Menyusun naskah…' : 'Merender video…'} {Math.round(activeStudioProgress.percent)}%
+          </span>
+        </button>
+      )}
 
       <main className="page">
         {activeTab === 'dashboard' && <DashboardView systemStatus={systemStatus} onNavigate={setActiveTab} />}

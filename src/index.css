@@ -936,6 +936,59 @@ code {
   margin-top: 20px;
 }
 
+/* ============================== STUDIO PILL ============================== */
+/* Muncul di halaman selain Studio selagi generate/render masih berjalan — satu-satunya
+   jejak progres karena kartu progres di halaman Studio sendiri tidak kelihatan waktu
+   halaman itu tidak sedang dibuka. Ditaruh kiri-bawah supaya tidak tabrakan dengan toast. */
+.studio-pill {
+  position: fixed;
+  left: 16px;
+  bottom: 16px;
+  z-index: 190;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 14px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  box-shadow: var(--shadow);
+  cursor: pointer;
+}
+.studio-pill:hover {
+  border-color: var(--accent);
+}
+
+/* ============================== FACT-CHECK VERDICT ============================== */
+.fact-verdict {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 9px;
+  border-radius: 20px;
+  white-space: nowrap;
+}
+.fact-verdict.success {
+  color: var(--success);
+  background: var(--success-subtle);
+}
+.fact-verdict.warn {
+  color: var(--accent);
+  background: var(--accent-subtle);
+}
+.fact-verdict.danger {
+  color: var(--danger);
+  background: var(--danger-subtle);
+}
+.fact-verdict.muted {
+  color: var(--text-muted);
+  background: var(--bg-subtle);
+}
+
 /* Toast */
 .toast-stack {
   position: fixed;

@@ -48,8 +48,8 @@ app.get('/api/status', (req, res) => {
 // Generate Naskah, Judul, Deskripsi, Tag via AI Hermes
 app.post('/api/ai/generate', async (req, res) => {
   try {
-    const { topic, niche, tone } = req.body;
-    const aiResult = await aiService.generateShortContent(topic, niche, tone);
+    const { topic, niche, tone, targetDurationSeconds } = req.body;
+    const aiResult = await aiService.generateShortContent(topic, niche, tone, targetDurationSeconds);
     res.json({ success: true, data: aiResult });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -61,6 +61,18 @@ app.post('/api/ai/random-topic', async (req, res) => {
   try {
     const suggestion = await aiService.suggestRandomTopic();
     res.json({ success: true, data: suggestion });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Cek fakta naskah narasi lewat model AI yang sama (bukan pencarian internet — lihat
+// disclaimer di factCheckNarration/UI).
+app.post('/api/ai/fact-check', async (req, res) => {
+  try {
+    const { narration, topic } = req.body;
+    const result = await aiService.factCheckNarration(narration, topic);
+    res.json({ success: true, data: result });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
@@ -86,12 +98,15 @@ app.get('/api/shorts', (req, res) => {
 // Buat Baru dari Awal hingga Upload Lengkap (One-Click Generate & Upload)
 app.post('/api/shorts/create-and-upload', async (req, res) => {
   try {
-    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes } = req.body;
+    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds } = req.body;
 
-    // Jika title sudah tersedia (dari frontend), gunakan langsung; jika tidak, generate
+    // Jika title sudah tersedia (dari frontend), gunakan langsung; jika tidak, generate.
+    // durationSeconds harus ikut disertakan di sini — sebelumnya field ini tidak dibawa,
+    // jadi render selalu jatuh ke durasi default (8 detik) meski naskah dari Studio sudah
+    // punya target/perkiraan durasi sendiri.
     let aiContent;
     if (title) {
-      aiContent = { title, description, tags, narration, scenes };
+      aiContent = { title, description, tags, narration, scenes, durationSeconds };
     } else {
       aiContent = await aiService.generateShortContent(topic, niche, tone);
     }

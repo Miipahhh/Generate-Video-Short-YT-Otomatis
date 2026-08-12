@@ -48,22 +48,40 @@ class AIService {
    * Menghasilkan paket konten YouTube Shorts lengkap:
    * Judul, Deskripsi, Tag, Naskah Narasi, dan Scene Breakdown untuk video vertikal 9:16
    */
-  async generateShortContent(topic = 'Fakta Unik AI & Teknologi Masa Depan', niche = 'Teknologi & AI', tone = 'Energik & Viral') {
+  async generateShortContent(topic = 'Fakta Unik AI & Teknologi Masa Depan', niche = 'Teknologi & AI', tone = 'Energik & Viral', targetDurationSeconds = null) {
     // Durasi & jumlah scene menyesuaikan jenis konten: cerita/dongeng/misteri butuh napas
     // panjang buat membangun plot (3-5 menit), sementara fakta/tips singkat cukup padat di
     // 60-90 detik (minimal 60 detik supaya informasinya nggak kepotong kependekan).
     const storyMode = this.detectStoryMode(niche);
     const isNarrative = storyMode === 'fiction' || storyMode === 'mystery';
-    const targetDurationLabel = isNarrative ? '180-360 detik (3-6 menit)' : '60-90 detik (minimal 60 detik)';
-    // Jumlah scene narrative sengaja dibatasi ke 12-16 (bukan lebih banyak lagi) supaya total
-    // output JSON tidak terlalu besar — versi 15-25 scene sebelumnya bikin generation time
-    // reasoning model di 9Router konsisten kena timeout untuk topik cerita panjang. Durasi
-    // sampai 6 menit dicapai lewat narasi per scene yang lebih panjang (20-30 detik), bukan
-    // menambah jumlah scene lebih banyak lagi.
-    const targetSceneGuidance = isNarrative
-      ? 'sekitar 12-16 scene (satu scene mewakili sekitar 20-30 detik narasi) supaya alur cerita tetap punya ruang buat pembukaan, konflik, klimaks, dan penutup tanpa scene yang berlebihan'
-      : 'sekitar 6-10 scene (satu scene tiap kira-kira 8-12 detik)';
-    const exampleDuration = isNarrative ? 270 : 65;
+
+    let targetDurationLabel;
+    let targetSceneGuidance;
+    let exampleDuration;
+
+    // User bisa menimpa perkiraan otomatis lewat dropdown "Target durasi" di Studio —
+    // kalau diisi, prompt dipaksa mengikuti angka itu persis, bukan rentang tebakan niche.
+    if (Number.isFinite(targetDurationSeconds) && targetDurationSeconds >= 15) {
+      const clamped = Math.min(Math.max(Math.round(targetDurationSeconds), 15), 360);
+      targetDurationLabel = `${clamped} detik (target pasti dari user, WAJIB dipenuhi — bukan cuma perkiraan)`;
+      // Sama seperti pembagian jumlah scene otomatis di bawah: narasi butuh lebih banyak
+      // "napas" per scene daripada fakta padat.
+      const secondsPerScene = isNarrative ? 25 : 10;
+      const sceneCount = Math.min(Math.max(Math.round(clamped / secondsPerScene), 3), 16);
+      targetSceneGuidance = `tepat ${sceneCount} scene (satu scene mewakili sekitar ${Math.round(clamped / sceneCount)} detik narasi)`;
+      exampleDuration = clamped;
+    } else {
+      targetDurationLabel = isNarrative ? '180-360 detik (3-6 menit)' : '60-90 detik (minimal 60 detik)';
+      // Jumlah scene narrative sengaja dibatasi ke 12-16 (bukan lebih banyak lagi) supaya total
+      // output JSON tidak terlalu besar — versi 15-25 scene sebelumnya bikin generation time
+      // reasoning model di 9Router konsisten kena timeout untuk topik cerita panjang. Durasi
+      // sampai 6 menit dicapai lewat narasi per scene yang lebih panjang (20-30 detik), bukan
+      // menambah jumlah scene lebih banyak lagi.
+      targetSceneGuidance = isNarrative
+        ? 'sekitar 12-16 scene (satu scene mewakili sekitar 20-30 detik narasi) supaya alur cerita tetap punya ruang buat pembukaan, konflik, klimaks, dan penutup tanpa scene yang berlebihan'
+        : 'sekitar 6-10 scene (satu scene tiap kira-kira 8-12 detik)';
+      exampleDuration = isNarrative ? 270 : 65;
+    }
 
     const prompt = `Kamu adalah pakar kreator YouTube Shorts viral dengan jutaan penonton.
 Tugasmu adalah membuat konten YouTube vertikal (9:16) berdurasi ${targetDurationLabel} dengan topik: "${topic}" dalam kategori niche: "${niche}" dengan gaya bicara "${tone}".
@@ -250,6 +268,93 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
     // dengan alasan kegagalan sungguhan disertakan (bukan pesan generik) supaya kelihatan
     // di UI apa yang benar-benar terjadi (timeout, connection refused, dll).
     return this.generateSmartFallback(topic, niche, tone, lastErrorMessage);
+  }
+
+  /**
+   * Minta AI menilai klaim faktual di naskah narasi. PENTING: ini pemeriksaan oleh model
+   * bahasa YANG SAMA yang menulis naskahnya, bukan pencarian internet sungguhan — jadi
+   * hasilnya cuma saringan awal (bisa saja model salah menilai atau tidak tahu suatu fakta),
+   * bukan sumber kebenaran akhir. Disclaimer ini juga ditampilkan di UI (ShortsStudioView).
+   */
+  async factCheckNarration(narration = '', topic = '') {
+    const text = (narration || '').trim();
+    if (!text) {
+      throw new Error('Naskah narasi kosong, tidak ada yang bisa dicek.');
+    }
+
+    const prompt = `Kamu adalah fact-checker yang teliti dan skeptis. Baca naskah narasi video pendek berikut (topik: "${topic}") dan identifikasi klaim FAKTUAL di dalamnya — pernyataan yang bisa benar/salah secara objektif (angka, kejadian, sifat sesuatu), BUKAN opini, gaya bahasa, atau ajakan follow/subscribe.
+
+Untuk tiap klaim faktual, nilai dengan salah satu dari 4 kategori persis ini:
+- "akurat": sesuai pengetahuan umum yang kamu tahu
+- "meragukan": terdengar dibesar-besarkan, disederhanakan berlebihan, atau butuh konteks tambahan supaya tidak menyesatkan
+- "keliru": bertentangan dengan pengetahuan umum yang kamu tahu
+- "tidak_bisa_dipastikan": klaim spesifik (angka presisi, kejadian lokal/personal, detail niche) yang tidak bisa kamu pastikan benar/salahnya dari pengetahuan umum
+
+Kalau naskahnya cerita fiksi atau tidak mengandung klaim faktual sama sekali, kembalikan claims array kosong dan jelaskan itu di overallNote.
+
+Naskah:
+"""
+${text}
+"""
+
+KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
+{
+  "claims": [
+    { "claim": "kutipan/ringkasan klaim, maks 120 karakter", "verdict": "akurat" | "meragukan" | "keliru" | "tidak_bisa_dipastikan", "note": "alasan singkat, maks 140 karakter" }
+  ],
+  "overallNote": "ringkasan umum 1-2 kalimat tentang keandalan naskah ini secara keseluruhan"
+}`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    const callModel = async (model, timeout) => {
+      const response = await axios.post(
+        `${this.apiEndpoint}/chat/completions`,
+        {
+          model,
+          messages: [
+            { role: 'system', content: 'You are a skeptical fact-checker. Always return valid JSON only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.2,
+          max_tokens: 1800,
+          stream: false
+        },
+        { headers, timeout }
+      );
+      const rawContent = response.data?.choices?.[0]?.message?.content || '';
+      return this.parseAiJson(rawContent);
+    };
+
+    // Model "combo" (mis. RequirementBusinessAnalysis) me-routing acak ke beberapa provider
+    // underlying di 9Router, jadi satu percobaan gagal bukan berarti modelnya benar-benar
+    // tidak bisa dipakai — pola yang sama seperti generateShortContent di atas. Tanpa retry
+    // ini, cek fakta sesekali gagal total padahal generate naskah (pakai model yang sama)
+    // baru saja berhasil.
+    try {
+      const parsed = await callModel(this.model, 60000);
+      return {
+        claims: Array.isArray(parsed.claims) ? parsed.claims : [],
+        overallNote: parsed.overallNote || '',
+        checkedBy: `${this.model} via 9Router`,
+        checkedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      console.warn('Cek fakta gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+      try {
+        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+        const parsed = await callModel(fallbackModel, 60000);
+        return {
+          claims: Array.isArray(parsed.claims) ? parsed.claims : [],
+          overallNote: parsed.overallNote || '',
+          checkedBy: `${fallbackModel} via 9Router (percobaan ke-2)`,
+          checkedAt: new Date().toISOString()
+        };
+      } catch (error2) {
+        throw new Error(`Gagal menjalankan cek fakta: ${this.describeAxiosError(error2)}`);
+      }
+    }
   }
 
   /** Ekstrak pesan error yang berguna dari axios error (timeout, connection refused, body API, dll) */
