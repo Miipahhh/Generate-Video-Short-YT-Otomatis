@@ -32,6 +32,9 @@ public/videos/*
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
+# Setelan agar repo git milik MoneyPrinterTurbo tidak ikut muncul di Source Control —
+# berlaku untuk siapa pun yang clone project ini, jadi sengaja ikut dikomit.
+!.vscode/settings.json
 .idea
 .DS_Store
 *.suo

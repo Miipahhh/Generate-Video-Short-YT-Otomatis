@@ -1,0 +1,17 @@
+{
+  // MoneyPrinterTurbo adalah project pihak ketiga (milik harry0703) yang ter-clone ke dalam
+  // folder ini oleh start-moneyprinter.bat, lengkap dengan repo git-nya sendiri. Tanpa
+  // setelan ini, panel Source Control ikut menampilkan riwayat commit serta perubahan MILIK
+  // MEREKA — gampang tertukar dengan riwayat project ini, dan bikin badge perubahan menyala
+  // padahal tidak ada yang perlu dikerjakan di sini.
+  "git.autoRepositoryDetection": false,
+  "git.ignoredRepositories": ["MoneyPrinterTurbo", "./MoneyPrinterTurbo"],
+
+  // Folder besar yang tidak perlu ikut dijelajahi saat pencarian (Ctrl+Shift+F).
+  "search.exclude": {
+    "**/node_modules": true,
+    "MoneyPrinterTurbo": true,
+    "dist": true,
+    "public/videos": true
+  }
+}
