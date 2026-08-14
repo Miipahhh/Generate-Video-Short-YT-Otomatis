@@ -22,6 +22,7 @@ import {
   getProblemClaims
 } from '../lib/studioStore.js';
 import ProgressBar from './ui/ProgressBar.jsx';
+import FootagePicker from './ui/FootagePicker.jsx';
 
 const VERDICT_LABEL = {
   akurat: 'Akurat',
@@ -42,7 +43,7 @@ const VERDICT_CLASS = {
 // tab Studio, karena App.jsx me-mount/unmount komponen ini tiap ganti tab. App.jsx sendiri
 // tidak pernah unmount selama sesi berjalan, jadi progres yang dihitung di sana aman dipakai
 // bersama oleh bar di halaman ini maupun pill status yang tampil di halaman lain.
-export default function ShortsStudioView({ onShortCreated, genProgress, renderProgress }) {
+export default function ShortsStudioView({ onShortCreated, genProgress, renderProgress, factCheckProgress }) {
   const studio = useStudioState();
   const {
     topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
@@ -133,6 +134,8 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
           </div>
         )}
 
+        {videoProvider === 'moneyprinter' && <FootagePicker />}
+
         <button onClick={generateScript} disabled={isGenerating || !topic.trim()} className="btn primary">
           {isGenerating ? (<><span className="spinner" />Membuat naskah…</>) : 'Buat naskah'}
         </button>
@@ -140,7 +143,7 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
         {genProgress.visible && (
           <ProgressBar
             percent={genProgress.percent}
-            elapsed={genProgress.elapsed}
+            remaining={genProgress.remaining}
             isReal={genProgress.isReal}
             label={isGenerating ? 'Menyusun naskah dengan AI' : 'Naskah selesai'}
           />
@@ -247,6 +250,15 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
             </button>
           </div>
 
+          {factCheckProgress?.visible && (
+            <ProgressBar
+              percent={factCheckProgress.percent}
+              remaining={factCheckProgress.remaining}
+              isReal={factCheckProgress.isReal}
+              label={isFactChecking ? 'Memeriksa klaim di naskah' : 'Cek fakta selesai'}
+            />
+          )}
+
           {isNarrativeNiche && !factCheck && (
             <p className="hint">Niche ini cenderung cerita fiksi — klaim faktual mungkin memang tidak ada.</p>
           )}
@@ -254,8 +266,9 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
           {factCheck && (
             <div style={{ marginTop: 10 }}>
               <div className="note" style={{ marginBottom: 10 }}>
-                Dicek oleh model AI yang sama (bukan pencarian internet) — anggap sebagai saringan awal,
-                bukan sumber kebenaran akhir. Untuk klaim penting, tetap verifikasi manual.
+                {factCheck.usedWebSearch
+                  ? 'Dicek dengan bantuan hasil pencarian web asli (Tavily), lebih akurat untuk info terkini — tapi tetap anggap sebagai saringan awal, bukan sumber kebenaran akhir. Untuk klaim penting, tetap verifikasi manual.'
+                  : 'Dicek oleh model AI yang sama (bukan pencarian internet) — anggap sebagai saringan awal, bukan sumber kebenaran akhir. Aktifkan "Fakta terkini" di tab Pengaturan untuk hasil yang lebih akurat.'}
               </div>
 
               {factCheck.claims?.length > 0 ? (
@@ -307,9 +320,8 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
                 style={{ width: 'auto' }}
               >
                 <option value="none">Simpan lokal saja</option>
-                <option value="private">Upload privat</option>
-                <option value="unlisted">Upload unlisted</option>
-                <option value="public">Upload publik</option>
+                <option value="draft">Upload sebagai draft (belum tayang)</option>
+                <option value="public">Upload & langsung tayang</option>
               </select>
             </div>
 
@@ -323,7 +335,7 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
           {renderProgress.visible && (
             <ProgressBar
               percent={renderProgress.percent}
-              elapsed={renderProgress.elapsed}
+              remaining={renderProgress.remaining}
               isReal={renderProgress.isReal}
               label={
                 isRendering
@@ -345,7 +357,7 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
           <div className="card-head">
             <h2 className="card-title">Video siap</h2>
             <p className="card-sub">
-              MP4 vertikal 720x1280.{skipUpload ? ' Tersimpan lokal, belum diupload ke YouTube.' : ''}
+              MP4 vertikal 720x1280.{skipUpload ? ' Tersimpan lokal, belum diupload ke Facebook.' : ''}
             </p>
           </div>
 

@@ -4,6 +4,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import dbService from './dbService.js';
 import ttsService from './ttsService.js';
+import aiService from './aiService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -128,7 +129,7 @@ class MoneyPrinterService {
    * video_script), supaya MPT tidak menulis ulang naskahnya sendiri — MPT hanya bertugas
    * mencocokkan footage stok, mensintesis suara (edge-tts internal), dan membakar subtitle.
    */
-  async attemptGenerateVideo({ title, narration, scenes, durationSeconds, ttsVoice, ttsRate }) {
+  async attemptGenerateVideo({ title, narration, scenes, durationSeconds, ttsVoice, ttsRate, localFootage }) {
     const alive = await this.pingServer();
     if (!alive) {
       throw new Error(`Server MoneyPrinterTurbo tidak terjangkau di ${this.endpoint}. Jalankan start-moneyprinter.bat dulu.`);
@@ -148,21 +149,48 @@ class MoneyPrinterService {
     const voiceRate = this.resolveVoiceRate(ttsRate);
     const clipDuration = Math.max(3, Math.min(8, Math.round((durationSeconds || 30) / Math.max(scenes?.length || 4, 1))));
 
+    // Footage sendiri (upload user, lihat footageService.js): kalau diisi, dipakai APA ADANYA
+    // menggantikan pencarian stok — cocok buat topik tentang orang/momen spesifik yang memang
+    // tidak akan pernah ada di Pexels/Pixabay (lihat komentar aiService.generateVideoSearchTerms
+    // soal ini). Urutan array = urutan klip ditempel ke timeline (MPT tidak mengurutkan ulang
+    // materi lokal), jadi harus sudah diurutkan sesuai alur scene sebelum sampai di sini.
+    const useLocalFootage = Array.isArray(localFootage) && localFootage.length > 0;
+
+    // PENTING (hanya relevan kalau BUKAN footage sendiri): kalau dibiarkan auto-generate
+    // sendiri, MoneyPrinterTurbo sering menyusun kata kunci pencarian dari JUDUL/NASKAH APA
+    // ADANYA — termasuk nama orang/tokoh spesifik kalau topiknya tentang seseorang (mis.
+    // "Lamine Yamal champion"). Situs stok footage (Pexels/Pixabay) tidak punya rekaman orang
+    // tertentu, jadi pencarian begitu nyaris selalu meleset jauh (pernah dapat video laminator
+    // kertas & orang main biola untuk topik pesepakbola). Di sini kita generate kata kunci kita
+    // sendiri yang sengaja generik/bebas nama, supaya pencariannya benar-benar dapat footage
+    // yang related secara visual. Gagal/null → dibiarkan MPT auto-generate sendiri (non-fatal).
+    const searchTerms = useLocalFootage ? null : await aiService.generateVideoSearchTerms(title, scenes);
+
     let createRes;
     try {
       createRes = await axios.post(`${this.endpoint}/api/v1/videos`, {
         video_subject: (title || 'Video Short').slice(0, 100),
         video_script: script,
+        ...(searchTerms ? { video_terms: searchTerms } : {}),
         video_aspect: '9:16',
-        video_concat_mode: 'random',
         video_clip_duration: clipDuration,
         video_count: 1,
-        video_source: 'pexels',
+        video_source: useLocalFootage ? 'local' : 'pexels',
+        ...(useLocalFootage ? { video_materials: localFootage.map((filename) => ({ url: filename })) } : {}),
         voice_name: voiceName,
         voice_rate: voiceRate,
         subtitle_enabled: true,
         bgm_type: 'random',
         bgm_volume: 0.2,
+        // PENTING: tanpa ini, MoneyPrinterTurbo generate kata kunci pencarian ACAK dari
+        // judul+naskah, lalu mengumpulkan SEMUA footage hasil pencarian dari semua kata kunci
+        // itu jadi satu kolam dan MENGACAKNYA (video_concat_mode 'random') sebelum ditempel ke
+        // timeline — jadi footage sama sekali tidak mengikuti urutan/isi narasi (video tentang
+        // Danau Toba bisa tiba-tiba menampilkan orang nge-gym). match_materials_to_script
+        // memaksa MPT membuat kata kunci berurutan sesuai alur naskah DAN mencocokkan
+        // footage per-segmen narasi (bukan diacak), supaya visual jauh lebih nyambung dengan
+        // apa yang sedang dinarasikan di titik itu.
+        match_materials_to_script: true,
         // Default MoneyPrinterTurbo cuma pakai 2 thread ffmpeg — jauh di bawah kapasitas CPU
         // modern. Naikkan supaya proses concat/render lebih cepat (aman diturunkan manual di
         // config.toml kalau CPU-nya lebih terbatas dari yang diasumsikan di sini).
@@ -245,7 +273,7 @@ class MoneyPrinterService {
       aspectRatio: '9:16',
       resolution: '1080x1920',
       durationSeconds: durationSeconds || 30,
-      provider: 'MoneyPrinterTurbo',
+      provider: useLocalFootage ? 'MoneyPrinterTurbo (footage sendiri)' : 'MoneyPrinterTurbo',
       taskId,
       scenes: (scenes || []).map((scene, idx) => ({ ...scene, startTime: idx * 2, endTime: (idx + 1) * 2 })),
       renderStatus: 'COMPLETED',

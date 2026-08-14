@@ -71,11 +71,19 @@ let state = {
   niche: '',
   tone: '',
   themeId: 'cyberpunk',
-  // Default sengaja "none" alias render saja: mengunggah ke channel YouTube asli itu langkah
+  // Default sengaja "none" alias render saja: mengunggah ke Facebook Page asli itu langkah
   // yang tidak bisa ditarik balik, jadi harus dipilih sadar, bukan kejadian karena lupa ganti.
   privacyStatus: 'none',
   targetDuration: 'auto',
   videoProvider: 'template',
+
+  // Footage sendiri (mode MoneyPrinterTurbo) — dipakai buat topik yang menampilkan orang/momen
+  // spesifik yang memang tidak akan pernah ada di stok Pexels/Pixabay. Nonaktif secara default,
+  // butuh user aktif memilih footage-nya sendiri per generate.
+  useLocalFootage: false,
+  footageLibrary: [], // semua klip yang pernah di-upload, dari server
+  selectedFootage: [], // array filename, urutannya = urutan tempel ke timeline
+  isFootageBusy: false, // upload/hapus lagi jalan
 
   isRandomizing: false,
   isGenerating: false,
@@ -127,6 +135,93 @@ export const setThemeId = (themeId) => setState({ themeId });
 export const setPrivacyStatus = (privacyStatus) => setState({ privacyStatus });
 export const setTargetDuration = (targetDuration) => setState({ targetDuration });
 
+// ---------------- Footage sendiri (MoneyPrinterTurbo, video_source: 'local') ----------------
+
+export function setUseLocalFootage(useLocalFootage) {
+  setState({ useLocalFootage });
+  if (useLocalFootage && state.footageLibrary.length === 0) fetchFootageLibrary();
+}
+
+export async function fetchFootageLibrary() {
+  try {
+    const res = await axios.get('/api/footage');
+    if (res.data?.success) {
+      const clips = res.data.data.clips || [];
+      setState({
+        footageLibrary: clips,
+        // Buang pilihan yang filenya sudah tidak ada lagi (mis. dihapus manual)
+        selectedFootage: state.selectedFootage.filter((f) => clips.some((c) => c.filename === f))
+      });
+      if (res.data.data.installed === false) {
+        toast.error('MoneyPrinterTurbo belum ter-install. Jalankan start-moneyprinter.bat dulu.');
+      }
+    }
+  } catch (error) {
+    toast.error('Gagal memuat daftar footage.');
+  }
+}
+
+export async function uploadFootageFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  setState({ isFootageBusy: true });
+  try {
+    const form = new FormData();
+    Array.from(fileList).forEach((file) => form.append('clips', file));
+    const res = await axios.post('/api/footage/upload', form, {
+      headers: { 'Content-Type': 'multipart/form-data' }
+    });
+    if (res.data?.success) {
+      const { uploaded, clips } = res.data.data;
+      // Klip yang baru saja diupload langsung dicentang & ditaruh di urutan paling akhir,
+      // supaya user tidak perlu klik ulang satu-satu setelah upload.
+      setState({
+        footageLibrary: clips,
+        selectedFootage: [...state.selectedFootage, ...uploaded]
+      });
+      toast.success(`${uploaded.length} footage berhasil diupload.`, { duration: 3000 });
+    }
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Gagal upload footage.');
+  } finally {
+    setState({ isFootageBusy: false });
+  }
+}
+
+export async function deleteFootageClip(filename) {
+  setState({ isFootageBusy: true });
+  try {
+    const res = await axios.delete(`/api/footage/${encodeURIComponent(filename)}`);
+    if (res.data?.success) {
+      setState({
+        footageLibrary: res.data.data,
+        selectedFootage: state.selectedFootage.filter((f) => f !== filename)
+      });
+      toast.success('Footage dihapus.', { duration: 2000 });
+    }
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Gagal menghapus footage.');
+  } finally {
+    setState({ isFootageBusy: false });
+  }
+}
+
+export function toggleFootageSelected(filename) {
+  const selected = state.selectedFootage.includes(filename)
+    ? state.selectedFootage.filter((f) => f !== filename)
+    : [...state.selectedFootage, filename];
+  setState({ selectedFootage: selected });
+}
+
+/** Geser urutan klip terpilih — urutannya menentukan urutan tempel ke timeline video. */
+export function moveFootageSelected(filename, direction) {
+  const list = [...state.selectedFootage];
+  const idx = list.indexOf(filename);
+  const target = idx + direction;
+  if (idx === -1 || target < 0 || target >= list.length) return;
+  [list[idx], list[target]] = [list[target], list[idx]];
+  setState({ selectedFootage: list });
+}
+
 /** Field hasil naskah (judul/deskripsi/tag) diedit langsung di kartu hasil. */
 export function patchResult(patch) {
   if (!state.result) return;
@@ -173,7 +268,13 @@ export async function generateScript() {
       tone: state.tone,
       targetDurationSeconds
     });
-    if (res.data?.success) setState({ result: res.data.data });
+    if (res.data?.success) {
+      setState({ result: res.data.data });
+      toast.success('Naskah, judul, dan tag siap direview di bawah.', {
+        title: 'Naskah selesai dibuat',
+        duration: 3500
+      });
+    }
   } catch (error) {
     toast.error('Gagal generate naskah. Pastikan server backend berjalan.');
   } finally {
@@ -183,6 +284,10 @@ export async function generateScript() {
 
 export async function renderAndUpload(onShortCreated) {
   if (!state.result || state.isRendering) return;
+  // Footage sendiri cuma relevan kalau mode video-nya MoneyPrinterTurbo DAN togelnya aktif
+  // DAN memang ada klip yang dipilih — kalau tidak, kirim kosong supaya server jatuh ke
+  // pencarian stok otomatis seperti biasa.
+  const useFootage = state.useLocalFootage && state.videoProvider === 'moneyprinter' && state.selectedFootage.length > 0;
   setState({ isRendering: true });
   try {
     const res = await axios.post('/api/shorts/create-and-upload', {
@@ -195,7 +300,8 @@ export async function renderAndUpload(onShortCreated) {
       scenes: state.result.scenes,
       durationSeconds: state.result.durationSeconds,
       themeId: state.themeId,
-      privacyStatus: state.privacyStatus
+      privacyStatus: state.privacyStatus,
+      localFootage: useFootage ? state.selectedFootage : undefined
     });
 
     if (res.data?.success) {
@@ -224,7 +330,19 @@ export async function factCheckScript() {
       narration: state.result.narration,
       topic: state.topic
     });
-    if (res.data?.success) setState({ factCheck: res.data.data });
+    if (res.data?.success) {
+      setState({ factCheck: res.data.data });
+      const problemCount = (res.data.data.claims || []).filter(
+        (c) => c.verdict === 'meragukan' || c.verdict === 'keliru'
+      ).length;
+      toast(problemCount > 0
+        ? `${problemCount} klaim perlu diperiksa lagi — lihat detail di bawah.`
+        : 'Tidak ada klaim bermasalah yang terdeteksi.', {
+        title: 'Cek fakta selesai',
+        type: problemCount > 0 ? 'info' : 'success',
+        duration: 4000
+      });
+    }
   } catch (error) {
     toast.error(error.response?.data?.message || 'Gagal menjalankan cek fakta.');
   } finally {

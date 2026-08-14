@@ -14,7 +14,7 @@ import ttsService from './ttsService.js';
  * (dengan pesan jelas) supaya user tahu dan bisa retry, bukan diam-diam dapat hasil
  * yang beda dari yang diminta.
  */
-async function renderShort({ title, narration, scenes, themeId, durationSeconds, niche }) {
+async function renderShort({ title, narration, scenes, themeId, durationSeconds, niche, localFootage }) {
   if (aiVideoService.isEnabled) {
     try {
       return await aiVideoService.generateVideo({ title, narration, scenes, durationSeconds });
@@ -34,7 +34,8 @@ async function renderShort({ title, narration, scenes, themeId, durationSeconds,
         scenes,
         durationSeconds,
         ttsVoice: ttsService.voice,
-        ttsRate: ttsService.rate
+        ttsRate: ttsService.rate,
+        localFootage
       });
     } catch (err) {
       console.error('[RenderOrchestrator] MoneyPrinterTurbo gagal:', err.message);

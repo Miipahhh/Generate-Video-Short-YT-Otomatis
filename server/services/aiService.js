@@ -1,5 +1,6 @@
 import axios from 'axios';
 import dbService from './dbService.js';
+import searchService from './searchService.js';
 
 class AIService {
   constructor() {
@@ -20,10 +21,19 @@ class AIService {
     try {
       return JSON.parse(cleanJson);
     } catch {
-      const start = cleanJson.indexOf('{');
-      const end = cleanJson.lastIndexOf('}');
-      if (start !== -1 && end > start) {
-        return JSON.parse(cleanJson.slice(start, end + 1));
+      const objStart = cleanJson.indexOf('{');
+      const objEnd = cleanJson.lastIndexOf('}');
+      if (objStart !== -1 && objEnd > objStart) {
+        try {
+          return JSON.parse(cleanJson.slice(objStart, objEnd + 1));
+        } catch { /* lanjut coba sebagai array di bawah */ }
+      }
+      // Sebagian pemanggil (mis. generateVideoSearchTerms) minta output array polos "[...]",
+      // bukan object — kalau ekstraksi object di atas gagal/tidak ada, coba batas array juga.
+      const arrStart = cleanJson.indexOf('[');
+      const arrEnd = cleanJson.lastIndexOf(']');
+      if (arrStart !== -1 && arrEnd > arrStart) {
+        return JSON.parse(cleanJson.slice(arrStart, arrEnd + 1));
       }
       throw new Error('Respons AI bukan JSON valid (kemungkinan model mencampur teks penjelasan dengan JSON).');
     }
@@ -45,7 +55,7 @@ class AIService {
   }
 
   /**
-   * Menghasilkan paket konten YouTube Shorts lengkap:
+   * Menghasilkan paket konten video Shorts lengkap:
    * Judul, Deskripsi, Tag, Naskah Narasi, dan Scene Breakdown untuk video vertikal 9:16
    */
   async generateShortContent(topic = 'Fakta Unik AI & Teknologi Masa Depan', niche = 'Teknologi & AI', tone = 'Energik & Viral', targetDurationSeconds = null) {
@@ -83,9 +93,21 @@ class AIService {
       exampleDuration = isNarrative ? 270 : 65;
     }
 
-    const prompt = `Kamu adalah pakar kreator YouTube Shorts viral dengan jutaan penonton.
-Tugasmu adalah membuat konten YouTube vertikal (9:16) berdurasi ${targetDurationLabel} dengan topik: "${topic}" dalam kategori niche: "${niche}" dengan gaya bicara "${tone}".
-Buat jumlah scene sesuai kebutuhan supaya menutupi SELURUH durasi target di atas — jangan berhenti di 4 scene kalau durasinya panjang. Untuk konten ini, buat ${targetSceneGuidance}. Tiap objek scene memakai struktur JSON PERSIS seperti contoh di bawah (sceneNumber, timeRange, visualDescription, captionText, narrationSegment), tinggal ditambah sejumlah scene yang dibutuhkan.
+    // Pencarian web (Tavily, opsional — nonaktif kalau belum diatur di Pengaturan) buat
+    // menyuntik fakta TERKINI ke prompt. Tanpa ini, AI cuma mengandalkan pengetahuan statis
+    // dari data latihan modelnya sendiri, yang bisa ketinggalan/salah untuk topik yang butuh
+    // info baru (kejadian terbaru, prestasi terkini seorang tokoh, dll). Dilewati untuk mode
+    // fiksi murni (fakta web tidak relevan buat cerita karangan), dan gagal diam-diam kalau
+    // pencarian error/nonaktif — generate tetap jalan seperti biasa tanpa konteks tambahan.
+    const searchContext = storyMode !== 'fiction' ? await searchService.searchTopic(topic) : null;
+    const searchContextBlock = searchContext
+      ? `\nKONTEKS FAKTA TERKINI dari pencarian web (WAJIB dipakai sebagai acuan supaya naskah akurat & up to date — jangan tulis sesuatu yang bertentangan dengan info ini, tapi sampaikan dengan gaya bahasa lisan santai sesuai aturan GAYA BAHASA di bawah, jangan ditempel mentah-mentah):\n${searchContext}\n`
+      : '';
+    const generatedBySuffix = searchContext ? ' + fakta web (Tavily)' : '';
+
+    const prompt = `Kamu adalah pakar kreator video Shorts/Reels vertikal viral dengan jutaan penonton.
+Tugasmu adalah membuat konten video vertikal (9:16) berdurasi ${targetDurationLabel} dengan topik: "${topic}" dalam kategori niche: "${niche}" dengan gaya bicara "${tone}".
+${searchContextBlock}Buat jumlah scene sesuai kebutuhan supaya menutupi SELURUH durasi target di atas — jangan berhenti di 4 scene kalau durasinya panjang. Untuk konten ini, buat ${targetSceneGuidance}. Tiap objek scene memakai struktur JSON PERSIS seperti contoh di bawah (sceneNumber, timeRange, visualDescription, captionText, narrationSegment), tinggal ditambah sejumlah scene yang dibutuhkan.
 
 GAYA BAHASA NARASI — PALING PENTING, ini yang bakal dibacakan suara AI, jadi harus terdengar seperti orang ngobrol, bukan teks yang dibaca robot:
 - Pakai bahasa lisan sehari-hari yang santai. Sapa penonton dengan "kamu".
@@ -99,15 +121,15 @@ GAYA BAHASA NARASI — PALING PENTING, ini yang bakal dibacakan suara AI, jadi h
 - Naskah harus mengalir antar scene: kalimat terakhir sebuah scene menyambung ke scene berikutnya, bukan berdiri sendiri-sendiri.
 - JANGAN tulis narasi dengan HURUF KAPITAL SEMUA (kapital semua hanya untuk "captionText" di layar, bukan untuk suara).
 
-WAJIB — SCENE PALING TERAKHIR harus ditutup dengan ajakan subscribe, supaya video tidak berhenti polos begitu saja:
+WAJIB — SCENE PALING TERAKHIR harus ditutup dengan ajakan follow, supaya video tidak berhenti polos begitu saja:
 - Ajakannya singkat dan natural, menyatu dengan gaya bicara naskah (bukan diselipkan tiba-tiba dan berasa template).
-- Pakai kata "subscribe" (bukan "follow" — ini konten YouTube), tapi JANGAN sebut nama akun/channel tertentu, cukup ajakan generik semacam "subscribe biar nggak ketinggalan" atau variasi lain yang cocok sama topiknya.
+- Pakai kata "follow" (bukan "subscribe" — ini konten Facebook Page, bukan YouTube), tapi JANGAN sebut nama akun/Page tertentu, cukup ajakan generik semacam "follow biar nggak ketinggalan" atau variasi lain yang cocok sama topiknya.
 - Ini satu-satunya scene yang boleh berisi ajakan — jangan diulang di scene lain.
 
 KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan skema:
 {
   "title": "Judul viral singkat maks 55 karakter + emoji + #shorts",
-  "description": "Deskripsi YouTube menarik dengan hook kuat, penjelasan singkat, kata kunci SEO, dan 5 hashtag relevan",
+  "description": "Deskripsi menarik dengan hook kuat, penjelasan singkat, kata kunci SEO, dan 5 hashtag relevan",
   "tags": "tag1, tag2, tag3, tag4, tag5, tag6, tag7, tag8, tag9, tag10, tag11, tag12, tag13, tag14, tag15",
   "narration": "Teks lengkap narasi suara mengikuti GAYA BAHASA di atas — gabungan mulus semua narrationSegment, hook di 3 detik pertama, panjangnya menyesuaikan durationSeconds di bawah",
   "durationSeconds": ${exampleDuration},
@@ -124,25 +146,25 @@ KEMBALIKAN OUTPUT DALAM FORMAT JSON MURNI TANPA MARKDOWN ATAU TEKS LAIN, dengan 
       "timeRange": "00:05 - 00:18",
       "visualDescription": "Animasi kode neon dan robot futuristik bekerja otomatis di cloud server",
       "captionText": "KERJA OTOMATIS 24 JAM!",
-      "narrationSegment": "Dia riset topiknya sendiri, nulis naskahnya sendiri, terus upload sendiri ke YouTube. Tiga kali seminggu, tanpa disentuh manusia sama sekali."
+      "narrationSegment": "Dia riset topiknya sendiri, nulis naskahnya sendiri, terus upload sendiri ke Facebook. Tiga kali seminggu, tanpa disentuh manusia sama sekali."
     },
     {
       "sceneNumber": 3,
       "timeRange": "00:18 - 00:32",
-      "visualDescription": "Grafik subscriber YouTube meledak tajam ke atas dengan nuansa cyberpunk",
+      "visualDescription": "Grafik follower halaman meledak tajam ke atas dengan nuansa cyberpunk",
       "captionText": "ALGORITMA SUKA KONSISTENSI!",
-      "narrationSegment": "Nah, di sini menariknya. Algoritma Shorts itu sayang sama channel yang rutin... dan jadwal otomatis bikin kamu rutin tanpa harus mikir."
+      "narrationSegment": "Nah, di sini menariknya. Algoritma video pendek itu sayang sama halaman yang rutin... dan jadwal otomatis bikin kamu rutin tanpa harus mikir."
     },
     {
       "sceneNumber": 4,
       "timeRange": "00:32 - 00:40",
-      "visualDescription": "Tombol subscribe berdenyut neon emas dengan efek partikel kaca",
-      "captionText": "SUBSCRIBE BIAR GAK KETINGGALAN!",
-      "narrationSegment": "Kalau kamu penasaran gimana cara setupnya, tinggal subscribe. Besok aku bongkar sisanya."
+      "visualDescription": "Tombol follow berdenyut neon emas dengan efek partikel kaca",
+      "captionText": "FOLLOW BIAR GAK KETINGGALAN!",
+      "narrationSegment": "Kalau kamu penasaran gimana cara setupnya, tinggal follow. Besok aku bongkar sisanya."
     }
   ]
 }
-CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat total ${targetSceneGuidance}, dengan jumlah kata di "narration" (gabungan semua narrationSegment) yang cukup panjang untuk dibacakan selama kurang lebih ${exampleDuration} detik (perkirakan ±2.5 kata Indonesia per detik). Berapa pun jumlah scene-nya, SCENE PALING TERAKHIR wajib berisi ajakan subscribe seperti dijelaskan di aturan GAYA BAHASA di atas.`;
+CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat total ${targetSceneGuidance}, dengan jumlah kata di "narration" (gabungan semua narrationSegment) yang cukup panjang untuk dibacakan selama kurang lebih ${exampleDuration} detik (perkirakan ±2.5 kata Indonesia per detik). Berapa pun jumlah scene-nya, SCENE PALING TERAKHIR wajib berisi ajakan follow seperti dijelaskan di aturan GAYA BAHASA di atas.`;
 
     // Coba panggil API (9Router lokal atau OpenRouter)
     // Untuk localhost 9Router, auth opsional — endpoint local bisa tanpa key
@@ -174,7 +196,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
             messages: [
               {
                 role: 'system',
-                content: 'You are an AI YouTube Shorts expert. Always return valid JSON only.'
+                content: 'You are an AI short-video content expert. Always return valid JSON only.'
               },
               { role: 'user', content: prompt }
             ],
@@ -189,7 +211,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
         const parsed = this.parseAiJson(rawContent);
         return {
           ...parsed,
-          generatedBy: `${this.model} via 9Router`,
+          generatedBy: `${this.model} via 9Router${generatedBySuffix}`,
           generatedAt: new Date().toISOString()
         };
       } catch (error) {
@@ -204,7 +226,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
                 {
                   model: 'hermes',
                   messages: [
-                    { role: 'system', content: 'You are an AI YouTube Shorts expert. Always return valid JSON only.' },
+                    { role: 'system', content: 'You are an AI short-video content expert. Always return valid JSON only.' },
                     { role: 'user', content: prompt }
                   ],
                   temperature: 0.7,
@@ -216,7 +238,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
               const parsed = this.parseAiJson(rawContent);
               return {
                 ...parsed,
-                generatedBy: `hermes (9Router) — fallback dari ${this.model}`,
+                generatedBy: `hermes (9Router) — fallback dari ${this.model}${generatedBySuffix}`,
                 generatedAt: new Date().toISOString()
               };
             } catch (err2) {
@@ -244,7 +266,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
                   {
                     model: modelCandidate,
                     messages: [
-                      { role: 'system', content: 'You are an AI YouTube Shorts expert. Always return valid JSON only.' },
+                      { role: 'system', content: 'You are an AI short-video content expert. Always return valid JSON only.' },
                       { role: 'user', content: prompt }
                     ],
                     temperature: 0.7,
@@ -256,7 +278,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
                 const parsed = this.parseAiJson(rawContent);
                 return {
                   ...parsed,
-                  generatedBy: isLocal9Router ? `${modelCandidate} via 9Router (fallback cepat)` : `Free AI (${modelCandidate}) via OpenRouter`,
+                  generatedBy: (isLocal9Router ? `${modelCandidate} via 9Router (fallback cepat)` : `Free AI (${modelCandidate}) via OpenRouter`) + generatedBySuffix,
                   generatedAt: new Date().toISOString()
                 };
               } catch (err2) {
@@ -276,10 +298,12 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
   }
 
   /**
-   * Minta AI menilai klaim faktual di naskah narasi. PENTING: ini pemeriksaan oleh model
-   * bahasa YANG SAMA yang menulis naskahnya, bukan pencarian internet sungguhan — jadi
-   * hasilnya cuma saringan awal (bisa saja model salah menilai atau tidak tahu suatu fakta),
-   * bukan sumber kebenaran akhir. Disclaimer ini juga ditampilkan di UI (ShortsStudioView).
+   * Minta AI menilai klaim faktual di naskah narasi. Kalau pencarian web (Tavily) aktif di
+   * Pengaturan, hasil pencarian topiknya disuntikkan ke prompt supaya penilaian didasari fakta
+   * TERKINI, bukan cuma pengetahuan statis model. Kalau tidak aktif/gagal, ini tetap pemeriksaan
+   * oleh model bahasa YANG SAMA yang menulis naskahnya (bukan pencarian internet sungguhan) —
+   * hasilnya cuma saringan awal, bukan sumber kebenaran akhir. Disclaimer ini disesuaikan di
+   * UI (ShortsStudioView) tergantung apakah konteks web dipakai atau tidak.
    */
   async factCheckNarration(narration = '', topic = '') {
     const text = (narration || '').trim();
@@ -287,13 +311,18 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
       throw new Error('Naskah narasi kosong, tidak ada yang bisa dicek.');
     }
 
-    const prompt = `Kamu adalah fact-checker yang teliti dan skeptis. Baca naskah narasi video pendek berikut (topik: "${topic}") dan identifikasi klaim FAKTUAL di dalamnya — pernyataan yang bisa benar/salah secara objektif (angka, kejadian, sifat sesuatu), BUKAN opini, gaya bahasa, atau ajakan follow/subscribe.
+    const searchContext = await searchService.searchTopic(topic || text.slice(0, 200));
+    const searchContextBlock = searchContext
+      ? `\nKONTEKS FAKTA TERKINI dari pencarian web — jadikan ini acuan utama buat menilai klaim yang berkaitan (lebih dipercaya daripada pengetahuan umummu kalau ada perbedaan):\n${searchContext}\n`
+      : '';
 
+    const prompt = `Kamu adalah fact-checker yang teliti dan skeptis. Baca naskah narasi video pendek berikut (topik: "${topic}") dan identifikasi klaim FAKTUAL di dalamnya — pernyataan yang bisa benar/salah secara objektif (angka, kejadian, sifat sesuatu), BUKAN opini, gaya bahasa, atau ajakan follow/subscribe.
+${searchContextBlock}
 Untuk tiap klaim faktual, nilai dengan salah satu dari 4 kategori persis ini:
-- "akurat": sesuai pengetahuan umum yang kamu tahu
+- "akurat": sesuai pengetahuan umum yang kamu tahu${searchContext ? ' atau konteks pencarian web di atas' : ''}
 - "meragukan": terdengar dibesar-besarkan, disederhanakan berlebihan, atau butuh konteks tambahan supaya tidak menyesatkan
-- "keliru": bertentangan dengan pengetahuan umum yang kamu tahu
-- "tidak_bisa_dipastikan": klaim spesifik (angka presisi, kejadian lokal/personal, detail niche) yang tidak bisa kamu pastikan benar/salahnya dari pengetahuan umum
+- "keliru": bertentangan dengan pengetahuan umum yang kamu tahu${searchContext ? ' atau konteks pencarian web di atas' : ''}
+- "tidak_bisa_dipastikan": klaim spesifik (angka presisi, kejadian lokal/personal, detail niche) yang tidak bisa kamu pastikan benar/salahnya${searchContext ? ' bahkan dari konteks pencarian di atas' : ' dari pengetahuan umum'}
 
 Kalau naskahnya cerita fiksi atau tidak mengandung klaim faktual sama sekali, kembalikan claims array kosong dan jelaskan itu di overallNote.
 
@@ -309,6 +338,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
   ],
   "overallNote": "ringkasan umum 1-2 kalimat tentang keandalan naskah ini secara keseluruhan"
 }`;
+    const checkedBySuffix = searchContext ? ' + fakta web (Tavily)' : '';
 
     const headers = { 'Content-Type': 'application/json' };
     if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
@@ -342,7 +372,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
       return {
         claims: Array.isArray(parsed.claims) ? parsed.claims : [],
         overallNote: parsed.overallNote || '',
-        checkedBy: `${this.model} via 9Router`,
+        checkedBy: `${this.model} via 9Router${checkedBySuffix}`,
+        usedWebSearch: Boolean(searchContext),
         checkedAt: new Date().toISOString()
       };
     } catch (error) {
@@ -353,7 +384,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
         return {
           claims: Array.isArray(parsed.claims) ? parsed.claims : [],
           overallNote: parsed.overallNote || '',
-          checkedBy: `${fallbackModel} via 9Router (percobaan ke-2)`,
+          checkedBy: `${fallbackModel} via 9Router (percobaan ke-2)${checkedBySuffix}`,
+          usedWebSearch: Boolean(searchContext),
           checkedAt: new Date().toISOString()
         };
       } catch (error2) {
@@ -383,7 +415,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
       .map((c) => `- "${c.claim}" → ditandai ${c.verdict}${c.note ? `: ${c.note}` : ''}`)
       .join('\n');
 
-    const prompt = `Kamu adalah editor naskah YouTube Shorts yang teliti. Naskah video berikut (topik: "${topic}") sudah dicek fakta, dan beberapa klaim di dalamnya ditandai bermasalah.
+    const prompt = `Kamu adalah editor naskah video Shorts yang teliti. Naskah video berikut (topik: "${topic}") sudah dicek fakta, dan beberapa klaim di dalamnya ditandai bermasalah.
 
 NASKAH ASLI (JSON):
 ${originalJson}
@@ -395,7 +427,7 @@ TUGASMU:
 - Perbaiki HANYA kalimat yang mengandung klaim bermasalah di atas — luruskan, lunakkan (tambah kata seperti "diperkirakan", "sebagian", "menurut sejumlah sumber"), atau ganti dengan pernyataan yang lebih akurat, supaya tidak lagi menyesatkan.
 - JANGAN ubah bagian naskah lain yang tidak disebut di atas. Pertahankan gaya bahasa, urutan cerita, dan JUMLAH SCENE yang sama persis (jumlah item di "scenes" harus sama dengan aslinya, sceneNumber & timeRange tetap sama).
 - Title/description/tags boleh disesuaikan HANYA kalau memuat klaim yang sama persis; kalau tidak, biarkan sama persis seperti aslinya.
-- Tetap ikuti gaya bahasa lisan santai seperti naskah aslinya (kalimat pendek-panjang berselang, tanpa klise, tanpa HURUF KAPITAL SEMUA di narasi), dan scene terakhir tetap ditutup ajakan subscribe generik seperti sebelumnya.
+- Tetap ikuti gaya bahasa lisan santai seperti naskah aslinya (kalimat pendek-panjang berselang, tanpa klise, tanpa HURUF KAPITAL SEMUA di narasi), dan scene terakhir tetap ditutup ajakan follow generik seperti sebelumnya.
 
 KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NASKAH ASLI di atas (title, description, tags, narration, durationSeconds, scenes[] dengan sceneNumber/timeRange/visualDescription/captionText/narrationSegment).`;
 
@@ -438,6 +470,185 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
     }
   }
 
+  /**
+   * Cek naskah/judul/deskripsi terhadap risiko pelanggaran community guideline platform (ujaran
+   * kebencian, kekerasan/konten berbahaya, konten dewasa, misinformasi berbahaya, harassment,
+   * spam/clickbait menyesatkan) SEBELUM diupload otomatis oleh auto-pilot. Auto-pilot jalan
+   * tanpa pengawasan manusia 3x seminggu — tanpa saringan ini, sekali AI generate sesuatu yang
+   * menyenggol guideline, langsung terpublish ke channel/halaman asli tanpa ada yang sempat
+   * cegah. Sama seperti factCheckNarration, ini penilaian model bahasa (bukan API moderasi resmi
+   * platform manapun) — saringan awal yang jauh lebih baik daripada tidak ada sama sekali, tapi
+   * bukan jaminan mutlak, terutama untuk pelanggaran yang butuh penilaian bernuansa.
+   */
+  async checkContentSafety({ title = '', description = '', narration = '' } = {}) {
+    const text = [title, description, narration].filter(Boolean).join('\n\n').trim();
+    if (!text) {
+      return { safe: true, risk: 'aman', concerns: [], overallNote: 'Konten kosong, tidak ada yang bisa dinilai.', checkedBy: 'lokal (tanpa AI)' };
+    }
+
+    const prompt = `Kamu adalah reviewer kepatuhan konten yang ketat untuk platform video pendek (YouTube/Facebook/Instagram). Nilai risiko pelanggaran community guideline dari judul, deskripsi, dan naskah narasi video pendek berikut — BUKAN menilai kualitas naskah atau ketepatan fakta.
+
+Kategori yang WAJIB dicek:
+- Ujaran kebencian / diskriminasi (SARA, gender, disabilitas, dll)
+- Kekerasan atau instruksi aktivitas berbahaya (self-harm, senjata, zat ilegal, dll)
+- Konten seksual/dewasa yang tidak pantas untuk audiens umum
+- Harassment/perundungan terhadap individu atau kelompok tertentu
+- Misinformasi berbahaya (klaim medis/kesehatan palsu, teori konspirasi berbahaya yang disajikan sebagai fakta)
+- Clickbait menyesatkan yang menjanjikan sesuatu yang tidak ada di kontennya
+
+Judul: "${title}"
+Deskripsi: "${description}"
+Naskah:
+"""
+${narration}
+"""
+
+KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
+{
+  "risk": "aman" | "perlu_review" | "berisiko",
+  "concerns": ["deskripsi singkat tiap masalah spesifik yang ditemukan, kosongkan array kalau aman"],
+  "overallNote": "1-2 kalimat kesimpulan"
+}
+"risk" wajib "aman" kalau memang tidak ada masalah — jangan mengarang masalah supaya kelihatan teliti. Konten fiksi/misteri/horor yang jelas-jelas fiksi TIDAK otomatis "berisiko" hanya karena temanya gelap.`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    const callModel = async (model) => {
+      const response = await axios.post(
+        `${this.apiEndpoint}/chat/completions`,
+        {
+          model,
+          messages: [
+            { role: 'system', content: 'You are a strict content-policy reviewer. Always return valid JSON only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.1,
+          max_tokens: 800,
+          stream: false
+        },
+        { headers, timeout: 45000 }
+      );
+      const rawContent = response.data?.choices?.[0]?.message?.content || '';
+      return this.parseAiJson(rawContent);
+    };
+
+    try {
+      const parsed = await this._checkSafetyWithRetry(callModel);
+      const risk = ['aman', 'perlu_review', 'berisiko'].includes(parsed.risk) ? parsed.risk : 'perlu_review';
+      return {
+        safe: risk === 'aman',
+        risk,
+        concerns: Array.isArray(parsed.concerns) ? parsed.concerns : [],
+        overallNote: parsed.overallNote || '',
+        checkedBy: `${this.model} via 9Router`,
+        checkedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      // Gagal total (9Router mati, dll) → JANGAN anggap aman diam-diam. Auto-pilot yang
+      // memanggil ini wajib memperlakukan hasil ini sebagai "butuh review manual", bukan
+      // "lolos", supaya kegagalan teknis tidak berubah jadi celah keamanan konten.
+      console.warn('[AIService] Cek keamanan konten gagal total:', this.describeAxiosError(error));
+      return {
+        safe: false,
+        risk: 'perlu_review',
+        concerns: [],
+        overallNote: `Cek keamanan gagal dijalankan (${this.describeAxiosError(error)}) — dianggap butuh review manual demi keamanan, bukan otomatis lolos.`,
+        checkedBy: 'gagal (AI tidak terjangkau)',
+        checkedAt: new Date().toISOString()
+      };
+    }
+  }
+
+  /** Retry 1x dengan model cadangan — pola sama seperti factCheckNarration/generateVideoSearchTerms. */
+  async _checkSafetyWithRetry(callModel) {
+    try {
+      return await callModel(this.model);
+    } catch (error) {
+      console.warn('[AIService] Cek keamanan gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+      const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+      return await callModel(fallbackModel);
+    }
+  }
+
+  /**
+   * Susun kata kunci pencarian video stok (Pexels/Pixabay, dipakai MoneyPrinterTurbo) yang
+   * GENERIK — sengaja TIDAK memakai nama orang/tokoh/klub/merek spesifik, karena situs stok
+   * footage tidak punya rekaman orang-orang tertentu (atlet, artis, tokoh publik). Kalau
+   * dibiarkan memakai nama asli (mis. "Lamine Yamal champion"), pencarian nyaris selalu
+   * kosong/meleset jauh dan MoneyPrinterTurbo jatuh ke hasil acak yang sama sekali tidak
+   * nyambung (video laminator, orang main biola, dll — pernah terjadi persis begini).
+   * Kata kunci disusun berurutan mengikuti alur scene supaya visualnya tetap nyambung dengan
+   * narasi (dipasangkan dengan match_materials_to_script di moneyPrinterService.js).
+   * Gagal/nonaktif → kembalikan null, pemanggil harus fallback ke auto-generate bawaan MPT.
+   */
+  async generateVideoSearchTerms(title, scenes) {
+    const sceneList = (scenes || []).filter((s) => s && (s.visualDescription || s.captionText));
+    if (sceneList.length === 0) return null;
+
+    const sceneLines = sceneList
+      .map((s, i) => `${i + 1}. ${(s.visualDescription || s.captionText || '').toString().slice(0, 160)}`)
+      .join('\n');
+
+    const prompt = `Kamu menyusun kata kunci pencarian video stok (Pexels/Pixabay) untuk video pendek berjudul "${(title || '').slice(0, 100)}".
+
+ATURAN PALING PENTING: situs stok footage TIDAK PUNYA rekaman orang tertentu (atlet, artis, tokoh publik, politisi, dll) — mereka cuma punya video generik (orang random, tempat, benda, suasana). Jadi:
+- JANGAN sebut nama orang, klub, merek, kota, atau event spesifik (misal "Lamine Yamal", "Barcelona", "Piala Dunia 2026") di kata kunci manapun.
+- Ganti dengan deskripsi visual GENERIK yang tetap cocok suasananya (misal ganti "Lamine Yamal mengangkat trofi" jadi "young athlete lifting trophy celebration").
+- Kata kunci WAJIB Bahasa Inggris (situs stoknya internasional), 2-4 kata per kata kunci.
+- Urutannya HARUS mengikuti urutan adegan di bawah, satu kata kunci per adegan.
+
+Adegan (urutan):
+${sceneLines}
+
+KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, panjang array = jumlah adegan di atas. Contoh: ["young athlete training session", "stadium crowd cheering night"]`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    const callModel = async (model) => {
+      const response = await axios.post(
+        `${this.apiEndpoint}/chat/completions`,
+        {
+          model,
+          messages: [
+            { role: 'system', content: 'You generate generic, name-free stock-footage search terms. Always return a valid JSON array of strings only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.4,
+          max_tokens: 600,
+          stream: false
+        },
+        { headers, timeout: 30000 }
+      );
+      const rawContent = response.data?.choices?.[0]?.message?.content || '';
+      const parsed = this.parseAiJson(rawContent);
+      const terms = Array.isArray(parsed) ? parsed : parsed?.terms;
+      if (!Array.isArray(terms) || terms.length === 0) return null;
+      const clean = terms
+        .filter((t) => typeof t === 'string' && t.trim())
+        .map((t) => t.trim().slice(0, 60));
+      return clean.length ? clean : null;
+    };
+
+    // Model "combo" 9Router kadang menabrak provider yang lagi kosong di satu percobaan —
+    // pola retry yang sama seperti factCheckNarration/reviseNarrationForFactCheck di atas.
+    // Ini cuma "nice to have" (render tetap jalan tanpa ini, MPT auto-generate sendiri), jadi
+    // cukup 1x retry dengan model cadangan, bukan rantai fallback panjang seperti generate naskah.
+    try {
+      return await callModel(this.model);
+    } catch (error) {
+      console.warn('[AIService] Generate kata kunci video gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+      try {
+        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
+        return await callModel(fallbackModel);
+      } catch (error2) {
+        console.warn('[AIService] Generate kata kunci video generik gagal total, MoneyPrinterTurbo pakai auto-generate bawaan:', this.describeAxiosError(error2));
+        return null;
+      }
+    }
+  }
+
   /** Ekstrak pesan error yang berguna dari axios error (timeout, connection refused, body API, dll) */
   describeAxiosError(err) {
     if (err.code === 'ECONNABORTED' || /timeout/i.test(err.message || '')) {
@@ -469,7 +680,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
     const tones = ['Energik & Viral', 'Misterius & Penasaran', 'Santai & Relatable', 'Dramatis & Menegangkan'];
     const tone = tones[Math.floor(Math.random() * tones.length)];
 
-    const prompt = `Kamu adalah trend-spotter konten YouTube Shorts/TikTok Indonesia yang jago cari ide yang berpotensi viral.
+    const prompt = `Kamu adalah trend-spotter konten Shorts/Reels/TikTok Indonesia yang jago cari ide yang berpotensi viral.
 Berikan SATU ide topik video Shorts baru dalam kategori "${category}" — bisa berupa fakta, cerita fiksi pendek, atau narasi dramatis, TIDAK harus tentang AI/teknologi kecuali kategorinya memang itu.
 KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
 {"topic": "judul singkat ide topik, maks 80 karakter", "niche": "${category}"}`;
@@ -571,8 +782,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Dan begitulah kisah ini akhirnya selesai — jauh lebih berkesan dari yang siapa pun bayangkan di awal.`
         ],
         ctas: [
-          `Kalau kamu suka cerita kayak gini, subscribe biar nggak ketinggalan part selanjutnya!`,
-          `Komen di bawah menurut kamu endingnya gimana, terus subscribe biar gak ketinggalan part lain!`
+          `Kalau kamu suka cerita kayak gini, follow biar nggak ketinggalan part selanjutnya!`,
+          `Komen di bawah menurut kamu endingnya gimana, terus follow biar gak ketinggalan part lain!`
         ]
       },
       mystery: {
@@ -597,8 +808,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Satu hal yang pasti: cerita ini nggak akan berhenti dibicarakan dalam waktu dekat.`
         ],
         ctas: [
-          `Menurut kamu ini kebetulan atau ada penjelasan lain? Tulis di komentar, dan subscribe biar gak ketinggalan.`,
-          `Subscribe kalau kamu suka cerita-cerita yang bikin penasaran kayak gini!`
+          `Menurut kamu ini kebetulan atau ada penjelasan lain? Tulis di komentar, dan follow biar gak ketinggalan.`,
+          `Follow kalau kamu suka cerita-cerita yang bikin penasaran kayak gini!`
         ]
       },
       motivation: {
@@ -623,8 +834,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Pada akhirnya, yang membedakan bukan siapa yang paling pintar, tapi siapa yang paling konsisten menjalankannya.`
         ],
         ctas: [
-          `Simpan video ini buat pengingat, dan subscribe buat tips lainnya!`,
-          `Kalau ini bermanfaat, share ke orang yang butuh dengar ini juga — subscribe juga biar gak ketinggalan.`
+          `Simpan video ini buat pengingat, dan follow buat tips lainnya!`,
+          `Kalau ini bermanfaat, share ke orang yang butuh dengar ini juga — follow juga biar gak ketinggalan.`
         ]
       },
       relationship: {
@@ -649,8 +860,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Dan itu jugalah yang akhirnya bikin sebuah hubungan terasa layak diperjuangkan.`
         ],
         ctas: [
-          `Share ke pasangan kamu kalau ini related banget, dan subscribe biar gak ketinggalan.`,
-          `Subscribe buat pembahasan hubungan yang relate lainnya.`
+          `Share ke pasangan kamu kalau ini related banget, dan follow biar gak ketinggalan.`,
+          `Follow buat pembahasan hubungan yang relate lainnya.`
         ]
       },
       facts: {
@@ -675,8 +886,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           `Sekarang kamu tahu faktanya — tinggal kamu pilih mau pakai informasi ini buat apa.`
         ],
         ctas: [
-          `Subscribe buat fakta-fakta menarik lainnya tiap hari!`,
-          `Share ke temanmu yang juga perlu tahu fakta ini — subscribe juga biar gak ketinggalan.`
+          `Follow buat fakta-fakta menarik lainnya tiap hari!`,
+          `Share ke temanmu yang juga perlu tahu fakta ini — follow juga biar gak ketinggalan.`
         ]
       }
     };
@@ -689,11 +900,11 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     const cta = this.pick(bank.ctas);
 
     const captionSets = {
-      fiction: ['CERITA INI NYATA?!', 'SEMUA BERUBAH DI SINI', 'TWIST-NYA GA NYANGKA', 'INILAH AKHIRNYA', 'SUBSCRIBE BUAT LANJUTANNYA'],
-      mystery: ['MASIH JADI MISTERI', 'SEMAKIN ANEH DIGALI', 'BELUM ADA JAWABAN PASTI', 'FAKTANYA SAMPAI SEKARANG', 'SUBSCRIBE, MENURUTMU GIMANA?'],
-      motivation: ['INI BEDANYA', 'BUKAN SOAL BAKAT', 'HASILNYA KELIHATAN CEPAT', 'MULAI DARI SEKARANG', 'SIMPAN & SUBSCRIBE'],
-      relationship: ['SERING DIABAIKAN', 'AKAR MASALAHNYA DI SINI', 'HUBUNGAN JADI BEDA', 'INTINYA SEPERTI INI', 'SHARE & SUBSCRIBE'],
-      facts: ['FAKTA MENGEJUTKAN', 'INI ALASANNYA', 'DAMPAKNYA LEBIH BESAR', 'JADI KESIMPULANNYA', 'SUBSCRIBE UNTUK FAKTA LAINNYA']
+      fiction: ['CERITA INI NYATA?!', 'SEMUA BERUBAH DI SINI', 'TWIST-NYA GA NYANGKA', 'INILAH AKHIRNYA', 'FOLLOW BUAT LANJUTANNYA'],
+      mystery: ['MASIH JADI MISTERI', 'SEMAKIN ANEH DIGALI', 'BELUM ADA JAWABAN PASTI', 'FAKTANYA SAMPAI SEKARANG', 'FOLLOW, MENURUTMU GIMANA?'],
+      motivation: ['INI BEDANYA', 'BUKAN SOAL BAKAT', 'HASILNYA KELIHATAN CEPAT', 'MULAI DARI SEKARANG', 'SIMPAN & FOLLOW'],
+      relationship: ['SERING DIABAIKAN', 'AKAR MASALAHNYA DI SINI', 'HUBUNGAN JADI BEDA', 'INTINYA SEPERTI INI', 'SHARE & FOLLOW'],
+      facts: ['FAKTA MENGEJUTKAN', 'INI ALASANNYA', 'DAMPAKNYA LEBIH BESAR', 'JADI KESIMPULANNYA', 'FOLLOW UNTUK FAKTA LAINNYA']
     };
     const captions = captionSets[mode];
 
@@ -703,7 +914,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
       'Montase adegan pendukung yang membangun rasa penasaran',
       'Momen puncak dengan efek visual dramatis dan tempo lebih cepat',
       'Visual penutup yang lebih tenang, memberi kesan kesimpulan/penyelesaian',
-      'Ajakan follow/subscribe dengan visual cerah dan energik'
+      'Ajakan follow dengan visual cerah dan energik'
     ];
 
     const scenes = narrationSegments.map((seg, idx) => ({
@@ -718,7 +929,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     return {
       title: `${t.slice(0, 45)} 👀 #shorts`,
       description: `${hook}\n\n${build}\n\n#shorts #viral #trending #${cleanNicheTag}`,
-      tags: `shorts, viral, trending, ${(niche || '').toLowerCase()}, ${t.toLowerCase()}, cerita, fakta, hiburan, youtube shorts, fyp`,
+      tags: `shorts, viral, trending, ${(niche || '').toLowerCase()}, ${t.toLowerCase()}, cerita, fakta, hiburan, reels, fyp`,
       narration: narrationSegments.join(' '),
       durationSeconds: 32,
       scenes,

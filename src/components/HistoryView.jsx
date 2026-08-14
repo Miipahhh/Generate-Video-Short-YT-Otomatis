@@ -34,7 +34,10 @@ export default function HistoryView() {
     if (!ok) return;
     try {
       const res = await axios.delete(`/api/shorts/${id}`);
-      if (res.data?.success) setShorts((prev) => prev.filter((item) => item.id !== id));
+      if (res.data?.success) {
+        setShorts((prev) => prev.filter((item) => item.id !== id));
+        toast.success(`"${title}" dan file MP4-nya sudah dihapus.`, { duration: 3000 });
+      }
     } catch (error) {
       toast.error('Gagal menghapus video.');
     }
@@ -93,6 +96,9 @@ export default function HistoryView() {
         ) : (
           filtered.map((item) => {
             const url = videoUrlOf(item);
+            // facebookVideoUrl untuk record baru; youtubeShortsUrl tetap didukung buat record
+            // lama dari sebelum aplikasi pindah ke Facebook.
+            const facebookUrl = item.uploadResult?.facebookVideoUrl;
             const youtubeUrl = item.uploadResult?.youtubeShortsUrl;
 
             return (
@@ -109,9 +115,22 @@ export default function HistoryView() {
                       })}
                     </span>
                     <span>{item.type === 'MANUAL_STUDIO' ? 'Manual' : 'Otomatis'}</span>
-                    {!url && <span>MP4 tidak tersedia</span>}
-                    {item.uploadResult?.success === false && <span>belum terupload</span>}
-                    {youtubeUrl && (
+                    {item.type === 'AUTO_SCHEDULED_BLOCKED' ? (
+                      <span title={item.safetyCheck?.overallNote || ''} style={{ color: 'var(--accent)' }}>
+                        ditahan cek keamanan — belum dirender
+                      </span>
+                    ) : (
+                      <>
+                        {!url && <span>MP4 tidak tersedia</span>}
+                        {item.uploadResult?.success === false && <span>belum terupload</span>}
+                      </>
+                    )}
+                    {facebookUrl && (
+                      <a href={facebookUrl} target="_blank" rel="noopener noreferrer">
+                        Facebook <ExternalLink size={11} style={{ verticalAlign: -1 }} />
+                      </a>
+                    )}
+                    {!facebookUrl && youtubeUrl && (
                       <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">
                         YouTube <ExternalLink size={11} style={{ verticalAlign: -1 }} />
                       </a>

@@ -625,6 +625,11 @@ code {
   background: var(--accent-subtle);
   border-color: var(--accent);
 }
+.note.danger {
+  color: var(--text);
+  background: var(--danger-subtle);
+  border-color: var(--danger);
+}
 
 .empty {
   padding: 40px 20px;
@@ -1000,11 +1005,11 @@ code {
   background: var(--bg-subtle);
 }
 
-/* Toast */
+/* Toast — kanan atas, di bawah topbar (topbar tingginya ~56px, sticky, z-index 50) */
 .toast-stack {
   position: fixed;
   right: 16px;
-  bottom: 16px;
+  top: 70px;
   z-index: 200;
   display: flex;
   flex-direction: column;

@@ -75,7 +75,26 @@ export function useProgress(active, { tau = 45, poll = false } = {}) {
     };
   }, [active, poll]);
 
-  return { percent, elapsed, visible, isReal };
+  // Perkiraan SISA waktu (hitung mundur), bukan waktu yang sudah berlalu — lebih kebayang
+  // "berapa lama lagi" daripada "sudah berapa lama".
+  //  - Progres asli (isReal, dari MoneyPrinterTurbo): ekstrapolasi linear dari laju sejauh ini
+  //    (elapsed/percent), sama seperti ETA pada umumnya.
+  //  - Progres perkiraan (kurva tau): total durasi "normal" dianggap ~2x tau (`tau` memang
+  //    dipilih sebagai kira-kira separuh durasi normal, lihat komentar di atas), sisa waktu =
+  //    total itu dikurangi yang sudah berlalu. Kalau proses ternyata lebih lama dari biasanya,
+  //    sisa waktu mentok di 0 (UI menampilkan "sebentar lagi", bukan angka negatif atau macet
+  //    di "0:00" yang keliru terkesan sudah selesai).
+  let remaining = 0;
+  if (visible) {
+    if (isReal && percent > 3) {
+      const estimatedTotal = (elapsed * 100) / percent;
+      remaining = Math.max(0, Math.round(estimatedTotal - elapsed));
+    } else {
+      remaining = Math.max(0, Math.round(tau * 2 - elapsed));
+    }
+  }
+
+  return { percent, elapsed, remaining, visible, isReal };
 }
 
 export function formatElapsed(total) {

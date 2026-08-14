@@ -1,14 +1,15 @@
 # AI Shorts Studio — 9Router & Hermes AI
 
-Aplikasi web (React + Express) untuk membuat video YouTube Shorts vertikal (9:16) secara otomatis: AI meracik naskah, judul, deskripsi, tag, lalu FFmpeg merender video MP4, dan sistem penjadwal (cron) bisa menjalankan alur ini otomatis 3x seminggu.
+Aplikasi web (React + Express) untuk membuat video Shorts vertikal (9:16) secara otomatis: AI meracik naskah, judul, deskripsi, tag, lalu FFmpeg merender video MP4, lalu diupload ke Facebook Page, dan sistem penjadwal (cron) bisa menjalankan seluruh alur ini otomatis 3x seminggu.
 
 ## Fitur
 
 - **Studio AI** — generate judul viral, deskripsi SEO, tag, dan naskah narasi per-scene lewat model AI (9Router/OpenRouter, kompatibel format OpenAI Chat Completions), dengan fallback konten offline kalau API tidak terjangkau.
 - **Render video 9:16** — dua mode: template FFmpeg (background bertema + teks caption/narasi, gratis & instan) atau **AI Video sungguhan** via fal.ai (visual digenerate AI sesuai topik/scene, berbayar per detik).
-- **Scheduler otomatis** — cron job (Senin/Rabu/Jumat 18:00 WIB) mengambil topik teratas dari antrean dan menjalankan alur generate → render → upload tanpa campur tangan manual. Antrean mulai kosong; kalau kosong saat jadwal tiba, topik diminta ke AI. Status auto-pilot & antrean ikut tersimpan di `server/data/database.json`, jadi tidak hilang saat server di-restart.
+- **Scheduler otomatis** — cron job (Senin/Rabu/Jumat 18:00 WIB) mengambil topik teratas dari antrean dan menjalankan alur generate → cek keamanan konten → render → upload tanpa campur tangan manual. Antrean mulai kosong; kalau kosong saat jadwal tiba, topik diminta ke AI. Status auto-pilot, antrean, dan riwayat eksekusi ikut tersimpan di `server/data/database.json`, jadi tidak hilang saat server di-restart.
+- **Cek keamanan konten** — sebelum auto-pilot upload otomatis, AI menilai naskah terhadap risiko pelanggaran community guideline (ujaran kebencian, misinformasi berbahaya, dll). Kalau berisiko, upload otomatis dibatalkan (videonya tetap masuk Riwayat buat direview manual).
 - **Riwayat** — semua short yang dibuat tersimpan permanen di `server/data/database.json`.
-- **Pengaturan** — endpoint/API key AI, kredensial YouTube OAuth, sumber video, dan narator suara diatur lewat tab Pengaturan di UI, tersimpan lokal.
+- **Pengaturan** — endpoint/API key AI, kredensial Facebook Page, sumber video, dan narator suara diatur lewat tab Pengaturan di UI, tersimpan lokal.
 
 ## Prasyarat
 
@@ -51,27 +52,33 @@ Kalau naskah yang di-generate selalu menampilkan banner kuning "AI utama tidak t
 
 ## Konfigurasi
 
-Salin `.env.example` ke `.env` bila ingin mengganti port backend (`PORT`). Konfigurasi AI provider dan YouTube OAuth **tidak** lewat `.env` — diisi lewat tab Pengaturan di aplikasi dan disimpan ke `server/data/database.json` (file ini di-gitignore karena berisi API key & client secret asli, jangan pernah dikomit).
+Salin `.env.example` ke `.env` bila ingin mengganti port backend (`PORT`). Konfigurasi AI provider dan Facebook Page **tidak** lewat `.env` — diisi lewat tab Pengaturan di aplikasi dan disimpan ke `server/data/database.json` (file ini di-gitignore karena berisi API key & token asli, jangan pernah dikomit).
 
-## Menghubungkan Upload Asli ke YouTube (OAuth)
+## Menghubungkan Upload Otomatis ke Facebook Page
 
-Sejak update ini, aplikasi bisa upload video sungguhan ke YouTube Shorts lewat YouTube Data API v3 (bukan simulasi lagi), dengan alur OAuth 2.0 penuh (authorization code + refresh token + resumable upload). Langkah setup di **Google Cloud Console** (harus dilakukan sendiri oleh pemilik akun Google/channel):
+Aplikasi upload video sungguhan ke Facebook Page lewat Graph API (bukan simulasi). Beda dari YouTube (yang butuh alur OAuth redirect penuh di dalam aplikasi), Facebook Page pakai model yang lebih sederhana: Anda generate **Page Access Token** sendiri dari Meta for Developers, lalu tempel langsung di Pengaturan — tidak ada redirect di aplikasi ini.
 
-1. Buka [Google Cloud Console](https://console.cloud.google.com/) → buat project baru (atau pakai yang sudah ada).
-2. Aktifkan **YouTube Data API v3** di menu "APIs & Services > Library".
-3. Di "APIs & Services > OAuth consent screen": buat consent screen (External, mode Testing cukup), tambahkan email Anda sebagai **Test user**, dan tambahkan scope `youtube.upload` & `youtube.readonly`.
-4. Di "APIs & Services > Credentials": buat **OAuth Client ID** tipe **Web application**.
-5. Di kolom **Authorized redirect URIs**, tambahkan persis:
-   ```
-   http://localhost:5173/api/youtube/oauth/callback
-   ```
-6. Salin **Client ID** dan **Client Secret** yang dihasilkan, tempel di tab **Pengaturan** aplikasi ini (bagian YouTube), lalu klik "Simpan Client ID & Secret".
-7. Klik **"Hubungkan dengan Google"** — Anda akan diarahkan ke halaman login Google, pilih akun/channel yang mau dipakai, setujui izin upload.
-8. Setelah berhasil, status di Pengaturan berubah jadi "Terhubung" dan mode otomatis pindah ke `PRODUCTION`. Upload berikutnya (manual maupun via scheduler) akan benar-benar terkirim ke channel tersebut.
+Langkah setup di **Meta for Developers** (harus dilakukan sendiri oleh admin Page):
 
-Kalau ingin memutus koneksi (kembali ke mode simulasi/Sandbox), klik **"Putuskan Koneksi Google"** di tab Pengaturan.
+1. Buka [developers.facebook.com/apps](https://developers.facebook.com/apps) → **Create App** → pilih tipe **Business** → beri nama bebas.
+2. Di dashboard App, tambahkan produk **Facebook Login** (untuk generate token) dan pastikan App terhubung ke Page yang mau dipakai (App Settings → Basic, atau lewat Business Manager kalau Page ada di situ).
+3. Buka **Graph API Explorer** ([developers.facebook.com/tools/explorer](https://developers.facebook.com/tools/explorer)):
+   - Pilih App yang baru dibuat di dropdown atas.
+   - Pilih **User Token** dulu, klik **"Get Token" → "Get User Access Token"**, centang izin `pages_manage_posts` dan `pages_read_engagement`, lalu Generate Token.
+   - Ganti dropdown dari **User Token** ke **Page Access Token**, pilih Page yang mau dipakai — Graph API Explorer otomatis menukar jadi token milik Page tersebut.
+   - (Opsional tapi disarankan) Tukar jadi token **long-lived** (tidak kedaluwarsa dalam hitungan jam) lewat endpoint `GET /oauth/access_token?grant_type=fb_exchange_token&client_id={app-id}&client_secret={app-secret}&fb_exchange_token={short-lived-token}` — detail lengkap di [dokumentasi resmi Meta](https://developers.facebook.com/docs/facebook-login/guides/access-tokens/get-long-lived).
+4. Salin **Page ID** (terlihat di halaman "About" Page Facebook Anda, atau dari respons token di atas) dan **Page Access Token** yang dihasilkan.
+5. Buka tab **Pengaturan** aplikasi ini → bagian **Facebook Page** → tempel Page ID & Page Access Token → klik **Cek koneksi** untuk memastikan valid → **Simpan**.
+6. Status di Pengaturan berubah jadi "Terhubung" begitu Page ID & token terisi. Upload berikutnya (manual maupun via scheduler) akan benar-benar terkirim ke Page tersebut.
 
-> Jika `PORT` backend atau URL frontend diubah dari default, sesuaikan juga redirect URI lewat env var `YOUTUBE_OAUTH_REDIRECT_URI` di `.env` — dan pastikan nilainya persis sama dengan yang didaftarkan di Google Cloud Console.
+Kalau ingin memutus koneksi (kembali ke mode simulasi/Sandbox), klik **"Putuskan koneksi"** di tab Pengaturan.
+
+**Catatan penting:**
+
+- Video vertikal (9:16) durasi pendek yang diupload otomatis ikut disurface di tab Reels Facebook — tidak perlu setup terpisah untuk itu.
+- Facebook Page tidak punya privasi granular seperti YouTube (private/unlisted) — pilihan di Studio cuma "Simpan lokal saja", "Upload sebagai draft" (belum tayang, publish manual nanti dari Meta Business Suite), atau "Upload & langsung tayang".
+- Kalau token kedaluwarsa (Facebook App masih mode Development, token pendek umurnya), upload akan gagal dengan pesan jelas di Riwayat — generate token baru dan simpan ulang.
+- Integrasi YouTube (kode & endpoint-nya) sengaja dibiarkan ada di `server/services/youtubeService.js`, tidak dihapus — kalau suatu saat ingin beralih balik atau upload ke dua platform sekaligus, tinggal disambungkan lagi.
 
 ## Video Digenerate AI Sungguhan (fal.ai)
 
@@ -110,8 +117,27 @@ Cara aktifkan:
 
 - Proses jauh lebih lambat dari template FFmpeg — mencari & mengunduh footage stok, sintesis suara, dan membakar subtitle bisa makan waktu 1-5 menit per video, tergantung kecepatan koneksi dan panjang naskah.
 - Kualitas hasil bergantung pada relevansi footage stok yang ditemukan Pexels/Pixabay untuk kata kunci topik — untuk topik yang sangat spesifik/niche, footage yang cocok mungkin terbatas.
-- Kalau server MoneyPrinterTurbo mati, timeout, atau gagal generate, sistem otomatis **fallback ke template FFmpeg** supaya proses tidak macet.
+- Kalau server MoneyPrinterTurbo mati, timeout, atau gagal generate, render **gagal dengan pesan jelas** (bukan diam-diam fallback ke template FFmpeg) — kalau mode ini yang dipilih, memang footage video asli yang diinginkan, bukan hasil beda diam-diam.
 - Jendela `start-moneyprinter.bat` harus tetap terbuka selama memakai mode ini — menutupnya memutus koneksi.
+- Topik tentang orang/tokoh tertentu (atlet, artis, dll) **tidak akan menampilkan wajah orang itu** — Pexels/Pixabay adalah stok footage generik, tidak punya rekaman orang-orang tertentu (butuh izin/model release yang tidak pernah ditandatangani tokoh publik). Sistem otomatis menyusun kata kunci pencarian yang generik/bebas nama supaya visualnya tetap related secara suasana, tapi untuk wajah sungguhan lihat bagian **Footage Sendiri** di bawah.
+
+### Footage Sendiri (Video Milik Anda Sendiri)
+
+Kalau perlu video yang benar-benar menampilkan orang/momen spesifik (yang tidak mungkin didapat dari stok Pexels/Pixabay), Anda bisa upload footage sendiri untuk dipakai menggantikan pencarian stok otomatis — naskah, sintesis suara, subtitle, dan potong-sambung video **tetap sepenuhnya otomatis** seperti biasa, cuma sumber visualnya yang berubah.
+
+Cara pakai:
+
+1. Di tab **Studio**, pilih provider video **MoneyPrinterTurbo** dulu di Pengaturan (fitur ini khusus mode itu).
+2. Di kartu naskah, aktifkan togel **"Pakai footage saya sendiri"**.
+3. Klik **Upload footage**, pilih video (mp4/mov/webm/mkv/avi, maks 500MB/file) — pastikan Anda memang punya hak pakai footage tersebut.
+4. Centang klip yang mau dipakai, atur urutannya dengan tombol panah (urutan ini menentukan urutan klip ditempel ke timeline, sebaiknya ikuti alur cerita naskah).
+5. Render seperti biasa — MoneyPrinterTurbo memotong & menyusun klip Anda sesuai durasi tiap adegan, lalu membakar subtitle & suara narator di atasnya.
+
+**Catatan penting:**
+
+- Sistem **tidak "paham isi" video** secara cerdas — dia cuma memotong klip sesuai jatah durasi per adegan, tidak otomatis mendeteksi "momen penting"-nya. Sebaiknya siapkan klip pendek yang memang sudah relevan (satu-dua klip per adegan naskah), bukan rekaman mentah berdurasi panjang.
+- File disimpan di `MoneyPrinterTurbo/storage/local_videos/` (butuh MoneyPrinterTurbo sudah ter-install lewat `start-moneyprinter.bat`).
+- Kalau togelnya aktif tapi tidak ada klip yang dicentang, render otomatis jatuh kembali ke pencarian stok biasa.
 
 ## Narator Suara AI (Text-to-Speech)
 
@@ -133,6 +159,19 @@ Kalau dinonaktifkan, atau kalau sintesis suara gagal karena sebab apa pun, video
 
 **Catatan penting:** fitur ini memakai [`edge-tts-universal`](https://www.npmjs.com/package/edge-tts-universal), library open-source yang memanfaatkan endpoint suara "Read Aloud" milik Microsoft Edge secara *tidak resmi* (reverse-engineered, bukan API resmi berbayar). Ini berarti: tidak butuh API key/biaya, tapi juga tidak dijamin Microsoft — kalau mereka mengubah sesuatu di sisi server, fitur ini bisa berhenti berfungsi sampai library-nya diperbarui.
 
+## Fakta Terkini (Pencarian Web)
+
+AI naskah (Hermes/9Router) murni model bahasa — cuma tahu apa yang ada di data latihannya, tidak bisa browsing internet. Untuk topik yang butuh info terbaru (kejadian baru, prestasi terkini seorang tokoh, dll), ini bisa bikin naskah salah atau ketinggalan zaman. Fitur ini opsional: menyuntik hasil pencarian web asli lewat [Tavily](https://tavily.com) (API pencarian yang dirancang khusus buat grounding AI/RAG, gratis 1.000 pencarian/bulan tanpa kartu kredit) ke prompt AI, baik saat generate naskah maupun cek fakta.
+
+Cara aktifkan:
+
+1. Daftar akun gratis di [app.tavily.com](https://app.tavily.com), salin API key (`tvly-...`).
+2. Buka tab **Pengaturan** → panel **Fakta terkini (pencarian web)** → aktifkan togelnya → tempel API key → **Simpan**.
+3. Generate short seperti biasa — kalau topiknya bukan cerita fiksi murni, aplikasi otomatis mencari topik itu di web dulu, hasilnya disuntikkan sebagai konteks ke prompt AI supaya naskahnya berdasar fakta aktual. Label "AI naskah" di kartu hasil akan menyebut "+ fakta web (Tavily)" kalau konteks pencarian berhasil dipakai.
+4. Tombol **Cek fakta** juga ikut memakai konteks pencarian yang sama untuk menilai klaim, jadi hasilnya lebih akurat daripada cuma mengandalkan pengetahuan model — disclaimer di UI otomatis menyesuaikan tergantung apakah pencarian web dipakai atau tidak.
+
+Kalau dinonaktifkan, API key kosong, atau pencarian gagal (quota habis, timeout, dll), generate & cek fakta tetap jalan seperti biasa tanpa konteks tambahan — proses tidak akan macet.
+
 ## Keterbatasan yang Diketahui
 
 - Video di-upload sebagai *unlisted/public/private* sesuai pilihan di Studio, dengan kategori tetap "Science & Technology" (categoryId 22) — belum ada UI untuk memilih kategori lain.
@@ -145,7 +184,8 @@ Kalau dinonaktifkan, atau kalau sintesis suara gagal karena sebab apa pun, video
 server/           Express backend
   server.js       Definisi semua endpoint REST
   services/       aiService, videoRendererService, aiVideoService, renderOrchestrator,
-                   youtubeService, schedulerService, ttsService, dbService
+                   facebookService, youtubeService (dormant), schedulerService, ttsService,
+                   dbService, searchService, moneyPrinterService, footageService
   data/           database.json (persisten, gitignored)
 src/              Frontend React (Vite)
   index.css       Design system (token warna light/dark + komponen dasar)

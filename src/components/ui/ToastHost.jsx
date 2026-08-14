@@ -30,7 +30,7 @@ export default function ToastHost() {
             <div className="toast-msg">{item.message}</div>
             {item.url && (
               <a href={item.url} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
-                Buka di YouTube
+                {item.linkLabel || 'Buka link'}
               </a>
             )}
           </div>

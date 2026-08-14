@@ -22,11 +22,12 @@ export default function SettingsView({ onSaved }) {
   const [models, setModels] = useState(FALLBACK_MODELS);
   const [modelsLoading, setModelsLoading] = useState(false);
 
-  // YouTube
-  const [channelName, setChannelName] = useState('');
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [youtubeStatus, setYoutubeStatus] = useState(null);
+  // Facebook Page (target upload otomatis saat ini)
+  const [pageName, setPageName] = useState('');
+  const [pageId, setPageId] = useState('');
+  const [pageAccessToken, setPageAccessToken] = useState('');
+  const [facebookStatus, setFacebookStatus] = useState(null);
+  const [fbCheckStatus, setFbCheckStatus] = useState(null); // null | 'checking' | 'alive' | 'down'
 
   // Video
   const [videoProvider, setVideoProvider] = useState('template');
@@ -36,6 +37,10 @@ export default function SettingsView({ onSaved }) {
   const [mptEndpoint, setMptEndpoint] = useState('http://127.0.0.1:8080');
   const [mptStatus, setMptStatus] = useState(null); // null | 'checking' | 'alive' | 'down'
 
+  // Pencarian web (Tavily) — fakta terkini buat naskah & cek fakta
+  const [searchEnabled, setSearchEnabled] = useState(false);
+  const [tavilyApiKey, setTavilyApiKey] = useState('');
+
   // TTS
   const [ttsEnabled, setTtsEnabled] = useState(true);
   const [ttsVoice, setTtsVoice] = useState('id-ID-GadisNeural');
@@ -44,14 +49,14 @@ export default function SettingsView({ onSaved }) {
   const [ttsVoices, setTtsVoices] = useState([]);
   const [previewing, setPreviewing] = useState(false);
 
-  const [saving, setSaving] = useState(null); // 'ai' | 'youtube' | 'video' | 'tts'
+  const [saving, setSaving] = useState(null); // 'ai' | 'facebook' | 'video' | 'tts' | 'search'
 
-  const fetchYoutubeStatus = async () => {
+  const fetchFacebookStatus = async () => {
     try {
-      const res = await axios.get('/api/youtube/status');
-      setYoutubeStatus(res.data);
+      const res = await axios.get('/api/facebook/status');
+      setFacebookStatus(res.data);
     } catch (error) {
-      console.warn('Gagal memuat status YouTube.');
+      console.warn('Gagal memuat status Facebook.');
     }
   };
 
@@ -74,13 +79,13 @@ export default function SettingsView({ onSaved }) {
       try {
         const res = await axios.get('/api/settings');
         if (res.data?.success) {
-          const { aiConfig, youtubeConfig, videoConfig, ttsConfig } = res.data.data;
+          const { aiConfig, facebookConfig, videoConfig, ttsConfig, searchConfig } = res.data.data;
           if (aiConfig?.aiEndpoint) setAiEndpoint(aiConfig.aiEndpoint);
           if (aiConfig?.apiKey) setApiKey(aiConfig.apiKey);
           if (aiConfig?.model) setModel(aiConfig.model);
-          if (youtubeConfig?.channelName) setChannelName(youtubeConfig.channelName);
-          if (youtubeConfig?.clientId) setClientId(youtubeConfig.clientId);
-          if (youtubeConfig?.clientSecret) setClientSecret(youtubeConfig.clientSecret);
+          if (facebookConfig?.pageName) setPageName(facebookConfig.pageName);
+          if (facebookConfig?.pageId) setPageId(facebookConfig.pageId);
+          if (facebookConfig?.pageAccessToken) setPageAccessToken(facebookConfig.pageAccessToken);
           if (videoConfig?.provider) setVideoProvider(videoConfig.provider);
           if (videoConfig?.falApiKey) setFalApiKey(videoConfig.falApiKey);
           if (videoConfig?.falModel) setFalModel(videoConfig.falModel);
@@ -91,6 +96,8 @@ export default function SettingsView({ onSaved }) {
           if (ttsConfig?.rate) setTtsRate(ttsConfig.rate);
           if (ttsConfig?.pitch) setTtsPitch(ttsConfig.pitch);
           if (ttsConfig?.availableVoices) setTtsVoices(ttsConfig.availableVoices);
+          if (searchConfig?.enabled !== undefined) setSearchEnabled(searchConfig.enabled);
+          if (searchConfig?.tavilyApiKey) setTavilyApiKey(searchConfig.tavilyApiKey);
         }
       } catch (error) {
         console.warn('Memakai konfigurasi default.');
@@ -99,7 +106,7 @@ export default function SettingsView({ onSaved }) {
       }
     };
     load();
-    fetchYoutubeStatus();
+    fetchFacebookStatus();
   }, []);
 
   useEffect(() => {
@@ -110,7 +117,7 @@ export default function SettingsView({ onSaved }) {
     setSaving(key);
     try {
       const res = await axios.post(url, payload);
-      if (res.data?.youtubeStatus) setYoutubeStatus(res.data.youtubeStatus);
+      if (res.data?.facebookStatus) setFacebookStatus(res.data.facebookStatus);
       toast.success(`${label} disimpan.`, { duration: 2200 });
       if (onSaved) onSaved();
     } catch (error) {
@@ -121,17 +128,29 @@ export default function SettingsView({ onSaved }) {
   };
 
   const handleDisconnect = async () => {
-    const ok = await confirmAction('Putuskan koneksi YouTube? Upload kembali ke mode sandbox (simulasi).', {
+    const ok = await confirmAction('Putuskan koneksi Facebook Page? Upload kembali ke mode sandbox (simulasi).', {
       title: 'Putuskan koneksi',
       danger: false
     });
     if (!ok) return;
     try {
-      const res = await axios.post('/api/youtube/oauth/disconnect');
-      if (res.data?.youtubeStatus) setYoutubeStatus(res.data.youtubeStatus);
+      const res = await axios.post('/api/facebook/disconnect');
+      if (res.data?.facebookStatus) setFacebookStatus(res.data.facebookStatus);
+      toast.success('Koneksi Facebook diputus, kembali ke mode sandbox.', { duration: 3000 });
       if (onSaved) onSaved();
     } catch (error) {
       toast.error('Gagal memutuskan koneksi.');
+    }
+  };
+
+  const checkFacebookConnection = async () => {
+    setFbCheckStatus('checking');
+    try {
+      const res = await axios.post('/api/facebook/verify');
+      setFbCheckStatus(res.data?.data?.alive ? 'alive' : 'down');
+      if (res.data?.data?.pageName) setPageName(res.data.data.pageName);
+    } catch (error) {
+      setFbCheckStatus('down');
     }
   };
 
@@ -263,81 +282,138 @@ export default function SettingsView({ onSaved }) {
         </form>
       </div>
 
-      {/* ---------------- YOUTUBE ---------------- */}
+      {/* ---------------- PENCARIAN WEB (FAKTA TERKINI) ---------------- */}
+      <div className="card">
+        <div className="card-head">
+          <h2 className="card-title">Fakta terkini (pencarian web)</h2>
+          <p className="card-sub">
+            AI naskah cuma tahu apa yang ada di data latihannya, bisa ketinggalan buat topik yang
+            butuh info baru. Aktifkan ini supaya naskah & cek fakta disuntik hasil pencarian web
+            asli lewat <a href="https://tavily.com" target="_blank" rel="noopener noreferrer">Tavily</a> (gratis 1.000 pencarian/bulan).
+          </p>
+        </div>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            save('search', '/api/settings/search', { enabled: searchEnabled, tavilyApiKey }, 'Pengaturan pencarian web');
+          }}
+        >
+          <div className="field">
+            <label className="switch-row">
+              <span className="switch">
+                <input
+                  type="checkbox"
+                  checked={searchEnabled}
+                  onChange={(e) => setSearchEnabled(e.target.checked)}
+                />
+                <span className="switch-track" />
+              </span>
+              Suntik fakta terkini dari pencarian web
+            </label>
+            <p className="hint">
+              Kalau nonaktif atau API key kosong, naskah & cek fakta tetap jalan seperti biasa
+              (murni dari pengetahuan model AI), bukan sumber kebenaran akhir.
+            </p>
+          </div>
+
+          {searchEnabled && (
+            <div className="field">
+              <label className="label" htmlFor="tavily-key">Tavily API key</label>
+              <input
+                id="tavily-key"
+                type="password"
+                value={tavilyApiKey}
+                onChange={(e) => setTavilyApiKey(e.target.value)}
+                placeholder="tvly-…"
+                className="input"
+              />
+              <p className="hint">
+                Daftar gratis di <a href="https://app.tavily.com" target="_blank" rel="noopener noreferrer">app.tavily.com</a>, salin API key, tempel di sini.
+              </p>
+            </div>
+          )}
+
+          <button type="submit" className="btn primary" disabled={saving === 'search'}>
+            {saving === 'search' ? 'Menyimpan…' : 'Simpan'}
+          </button>
+        </form>
+      </div>
+
+      {/* ---------------- FACEBOOK PAGE ---------------- */}
       <div className="card">
         <div className="card-head head-row">
           <div>
-            <h2 className="card-title">YouTube</h2>
-            <p className="card-sub">Kredensial OAuth Google untuk upload otomatis.</p>
+            <h2 className="card-title">Facebook Page</h2>
+            <p className="card-sub">Page Access Token untuk upload otomatis ke Facebook.</p>
           </div>
           <span className="status">
-            <span className={`dot ${youtubeStatus?.isOAuthConnected ? 'on' : 'off'}`} />
-            {youtubeStatus?.isOAuthConnected ? `Terhubung — ${youtubeStatus.channelName}` : 'Sandbox (simulasi)'}
+            <span className={`dot ${facebookStatus?.isConnected ? 'on' : 'off'}`} />
+            {facebookStatus?.isConnected ? `Terhubung — ${facebookStatus.pageName}` : 'Sandbox (simulasi)'}
           </span>
         </div>
 
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            save('youtube', '/api/settings/youtube', { channelName, clientId, clientSecret }, 'Kredensial YouTube');
+            save('facebook', '/api/settings/facebook', { pageName, pageId, pageAccessToken }, 'Kredensial Facebook');
           }}
         >
           <div className="field">
-            <label className="label" htmlFor="yt-channel">Nama channel</label>
+            <label className="label" htmlFor="fb-name">Nama Page</label>
             <input
-              id="yt-channel"
+              id="fb-name"
               type="text"
-              value={channelName}
-              onChange={(e) => setChannelName(e.target.value)}
+              value={pageName}
+              onChange={(e) => setPageName(e.target.value)}
               className="input"
             />
           </div>
 
           <div className="grid-2 field">
             <div>
-              <label className="label" htmlFor="yt-id">Client ID</label>
+              <label className="label" htmlFor="fb-id">Page ID</label>
               <input
-                id="yt-id"
+                id="fb-id"
                 type="text"
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                placeholder="xxx.apps.googleusercontent.com"
+                value={pageId}
+                onChange={(e) => setPageId(e.target.value)}
+                placeholder="1234567890"
                 className="input"
               />
             </div>
             <div>
-              <label className="label" htmlFor="yt-secret">Client secret</label>
+              <label className="label" htmlFor="fb-token">Page Access Token</label>
               <input
-                id="yt-secret"
+                id="fb-token"
                 type="password"
-                value={clientSecret}
-                onChange={(e) => setClientSecret(e.target.value)}
-                placeholder="GOCSPX-…"
+                value={pageAccessToken}
+                onChange={(e) => setPageAccessToken(e.target.value)}
+                placeholder="EAAG…"
                 className="input"
               />
             </div>
           </div>
 
           <div className="btn-row">
-            <button type="submit" className="btn primary" disabled={saving === 'youtube'}>
-              {saving === 'youtube' ? 'Menyimpan…' : 'Simpan'}
+            <button type="submit" className="btn primary" disabled={saving === 'facebook'}>
+              {saving === 'facebook' ? 'Menyimpan…' : 'Simpan'}
             </button>
-            {youtubeStatus?.isOAuthConnected ? (
+            <button type="button" className="btn" onClick={checkFacebookConnection} disabled={fbCheckStatus === 'checking' || !pageId || !pageAccessToken}>
+              {fbCheckStatus === 'checking' ? <span className="spinner" /> : 'Cek koneksi'}
+            </button>
+            {facebookStatus?.isConnected && (
               <button type="button" className="btn" onClick={handleDisconnect}>Putuskan koneksi</button>
-            ) : (
-              <a
-                href="/api/youtube/oauth/connect"
-                className="btn"
-                style={clientId && clientSecret ? undefined : { pointerEvents: 'none', opacity: 0.55 }}
-              >
-                Hubungkan Google
-              </a>
             )}
           </div>
+          {fbCheckStatus === 'alive' && <p className="hint"><span className="dot on" /> Page terjangkau & token valid.</p>}
+          {fbCheckStatus === 'down' && <p className="hint"><span className="dot off" /> Page ID/token tidak valid, atau tidak terjangkau. Cek ulang di Meta for Developers.</p>}
 
           <p className="hint">
-            Tambahkan URI ini sebagai authorized redirect URI di Google Cloud Console:{' '}
-            <code>{youtubeStatus?.redirectUri || 'http://localhost:5173/api/youtube/oauth/callback'}</code>
+            Page ID & Page Access Token didapat sendiri dari{' '}
+            <a href="https://developers.facebook.com/apps" target="_blank" rel="noopener noreferrer">Meta for Developers</a>{' '}
+            (App milik Anda sendiri, admin Page yang sama) — bukan lewat redirect aplikasi ini. Izin yang dibutuhkan:{' '}
+            <code>pages_manage_posts</code> dan <code>pages_read_engagement</code>. Detail langkah-langkah ada di README.
           </p>
         </form>
       </div>

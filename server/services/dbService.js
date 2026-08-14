@@ -20,6 +20,8 @@ class DatabaseService {
         apiKey: '',
         model: 'hermes',
       },
+      // Dibiarkan (tidak dihapus) meski upload aktif sekarang ke Facebook — supaya gampang
+      // diaktifkan lagi kalau suatu saat balik pakai YouTube, tanpa perlu setup ulang dari nol.
       youtubeConfig: {
         channelName: 'AI Shorts Studio Channel',
         clientId: '',
@@ -29,6 +31,12 @@ class DatabaseService {
         tokenExpiresAt: 0,
         channelId: '',
         subscriberCount: '',
+        mode: 'SANDBOX'
+      },
+      facebookConfig: {
+        pageName: 'AI Shorts Studio Page',
+        pageId: '',
+        pageAccessToken: '',
         mode: 'SANDBOX'
       },
       videoConfig: {
@@ -45,9 +53,17 @@ class DatabaseService {
         rate: '+0%',
         pitch: '+0Hz'
       },
+      searchConfig: {
+        enabled: false, // Pencarian web (Tavily) buat menyuntik fakta terkini ke naskah & cek fakta
+        tavilyApiKey: ''
+      },
       schedulerConfig: {
         isAutoPilotEnabled: true,
-        topicQueue: []
+        topicQueue: [],
+        // Riwayat eksekusi auto-pilot (berhasil/gagal/diblokir keamanan), terbaru duluan, maks
+        // 30 entri — supaya kegagalan auto-pilot yang jalan tanpa pengawasan tidak cuma
+        // kelihatan di log server yang tidak pernah dilihat siapa pun.
+        executionLog: []
       },
       shortsHistory: []
     };
@@ -65,9 +81,11 @@ class DatabaseService {
           ...parsed,
           aiConfig: { ...this.defaultData.aiConfig, ...(parsed.aiConfig || {}) },
           youtubeConfig: { ...this.defaultData.youtubeConfig, ...(parsed.youtubeConfig || {}) },
+          facebookConfig: { ...this.defaultData.facebookConfig, ...(parsed.facebookConfig || {}) },
           videoConfig: { ...this.defaultData.videoConfig, ...(parsed.videoConfig || {}) },
           ttsConfig: { ...this.defaultData.ttsConfig, ...(parsed.ttsConfig || {}) },
-          schedulerConfig: { ...this.defaultData.schedulerConfig, ...(parsed.schedulerConfig || {}) }
+          schedulerConfig: { ...this.defaultData.schedulerConfig, ...(parsed.schedulerConfig || {}) },
+          searchConfig: { ...this.defaultData.searchConfig, ...(parsed.searchConfig || {}) }
         };
       }
     } catch (err) {
@@ -110,6 +128,16 @@ class DatabaseService {
     return this.data.youtubeConfig;
   }
 
+  getFacebookConfig() {
+    return this.data.facebookConfig;
+  }
+
+  saveFacebookConfig(config = {}) {
+    this.data.facebookConfig = { ...this.data.facebookConfig, ...config };
+    this.saveDatabase();
+    return this.data.facebookConfig;
+  }
+
   getVideoConfig() {
     return this.data.videoConfig;
   }
@@ -122,6 +150,16 @@ class DatabaseService {
 
   getTtsConfig() {
     return this.data.ttsConfig;
+  }
+
+  getSearchConfig() {
+    return this.data.searchConfig;
+  }
+
+  saveSearchConfig(config = {}) {
+    this.data.searchConfig = { ...this.data.searchConfig, ...config };
+    this.saveDatabase();
+    return this.data.searchConfig;
   }
 
   saveTtsConfig(config = {}) {

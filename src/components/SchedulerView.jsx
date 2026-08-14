@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2 } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, XCircle, ShieldAlert } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
@@ -16,6 +16,18 @@ const NICHES = [
   'Konspirasi & urban legend',
   'Motivasi & karir'
 ];
+
+const EXECUTION_STATUS = {
+  success: { icon: CheckCircle2, color: 'var(--success)', label: 'Berhasil' },
+  failed: { icon: XCircle, color: 'var(--danger)', label: 'Gagal' },
+  blocked: { icon: ShieldAlert, color: 'var(--accent)', label: 'Ditahan cek keamanan' }
+};
+
+function formatLogTime(iso) {
+  return new Date(iso).toLocaleString('id-ID', {
+    day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit'
+  });
+}
 
 export default function SchedulerView({ onShortCreated }) {
   const [config, setConfig] = useState(null);
@@ -47,7 +59,13 @@ export default function SchedulerView({ onShortCreated }) {
     if (!config) return;
     try {
       const res = await axios.post('/api/scheduler/config', { enabled: !config.isAutoPilotEnabled });
-      if (res.data?.success) setConfig(res.data.data);
+      if (res.data?.success) {
+        setConfig(res.data.data);
+        toast.success(
+          res.data.data.isAutoPilotEnabled ? 'Auto-pilot diaktifkan.' : 'Auto-pilot dinonaktifkan.',
+          { duration: 2500 }
+        );
+      }
     } catch (error) {
       toast.error('Gagal mengubah status auto-pilot.');
     }
@@ -60,6 +78,7 @@ export default function SchedulerView({ onShortCreated }) {
       const res = await axios.post('/api/scheduler/topic-queue', { topic: newTopic.trim(), niche: newNiche });
       if (res.data?.success) {
         setConfig(res.data.data);
+        toast.success(`"${newTopic.trim()}" masuk antrean.`, { duration: 2500 });
         setNewTopic('');
       }
     } catch (error) {
@@ -72,7 +91,10 @@ export default function SchedulerView({ onShortCreated }) {
     if (!ok) return;
     try {
       const res = await axios.delete(`/api/scheduler/topic-queue/${id}`);
-      if (res.data?.success) setConfig(res.data.data);
+      if (res.data?.success) {
+        setConfig(res.data.data);
+        toast.success(`"${label}" dihapus dari antrean.`, { duration: 2500 });
+      }
     } catch (error) {
       toast.error('Gagal menghapus topik.');
     }
@@ -108,6 +130,8 @@ export default function SchedulerView({ onShortCreated }) {
   }
 
   const queue = config?.topicQueue || [];
+  const executionLog = config?.executionLog || [];
+  const lastRun = executionLog[0];
 
   return (
     <div>
@@ -122,6 +146,13 @@ export default function SchedulerView({ onShortCreated }) {
           {isExecuting ? (<><span className="spinner" />Memproses…</>) : 'Jalankan sekarang'}
         </button>
       </div>
+
+      {lastRun?.status === 'failed' && (
+        <div className="note danger" style={{ marginBottom: 16 }}>
+          <strong>Eksekusi terakhir gagal</strong> ({formatLogTime(lastRun.timestamp)}): {lastRun.message}
+          {' '}— topik "{lastRun.topic}" otomatis dikembalikan ke antrean, akan dicoba lagi jadwal berikutnya.
+        </div>
+      )}
 
       <div className="card">
         <label className="switch-row">
@@ -139,7 +170,7 @@ export default function SchedulerView({ onShortCreated }) {
         {progress.visible && (
           <ProgressBar
             percent={progress.percent}
-            elapsed={progress.elapsed}
+            remaining={progress.remaining}
             isReal={progress.isReal}
             label={isExecuting ? 'Membuat naskah, merender, lalu upload' : 'Eksekusi selesai'}
           />
@@ -198,6 +229,39 @@ export default function SchedulerView({ onShortCreated }) {
                 </button>
               </div>
             ))}
+          </div>
+        )}
+      </div>
+
+      <div className="card">
+        <div className="card-head">
+          <h2 className="card-title">Riwayat eksekusi</h2>
+          <p className="card-sub">
+            Setiap kali auto-pilot (atau "Jalankan sekarang") jalan, hasilnya dicatat di sini —
+            supaya kegagalan tidak cuma kelihatan di log server yang tidak pernah kamu buka.
+          </p>
+        </div>
+
+        {executionLog.length === 0 ? (
+          <div className="empty">Belum ada eksekusi yang tercatat.</div>
+        ) : (
+          <div className="list">
+            {executionLog.map((entry) => {
+              const meta = EXECUTION_STATUS[entry.status] || EXECUTION_STATUS.failed;
+              const Icon = meta.icon;
+              return (
+                <div key={entry.id} className="list-item" style={{ alignItems: 'flex-start' }}>
+                  <Icon size={16} style={{ color: meta.color, flexShrink: 0, marginTop: 2 }} />
+                  <div className="list-item-main" style={{ flex: 1 }}>
+                    <div className="list-item-title">{entry.topic || '(topik tidak tercatat)'}</div>
+                    <div className="list-item-meta">
+                      {meta.label} • {formatLogTime(entry.timestamp)}
+                      {entry.message && <> — {entry.message}</>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

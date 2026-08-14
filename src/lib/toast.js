@@ -18,6 +18,7 @@ function push(message, opts = {}) {
     message,
     title: opts.title,
     url: opts.url,
+    linkLabel: opts.linkLabel,
     type: opts.type || 'info',
     duration: opts.duration ?? 4500
   };

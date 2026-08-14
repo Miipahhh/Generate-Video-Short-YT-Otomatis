@@ -18,7 +18,9 @@
     "dotenv": "^17.4.2",
     "edge-tts-universal": "^1.4.0",
     "express": "^5.2.1",
+    "form-data": "^4.0.6",
     "lucide-react": "^1.24.0",
+    "multer": "^2.2.0",
     "node-cron": "^4.6.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7"

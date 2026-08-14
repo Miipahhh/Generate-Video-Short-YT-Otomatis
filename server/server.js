@@ -2,6 +2,8 @@ import 'dotenv/config';
 import express from 'express';
 import cors from 'cors';
 import path from 'path';
+import fs from 'fs';
+import multer from 'multer';
 import { fileURLToPath } from 'url';
 import aiService from './services/aiService.js';
 import aiVideoService from './services/aiVideoService.js';
@@ -9,8 +11,11 @@ import moneyPrinterService from './services/moneyPrinterService.js';
 import renderOrchestrator from './services/renderOrchestrator.js';
 import ttsService from './services/ttsService.js';
 import youtubeService from './services/youtubeService.js';
+import facebookService from './services/facebookService.js';
 import schedulerService from './services/schedulerService.js';
 import dbService from './services/dbService.js';
+import searchService from './services/searchService.js';
+import footageService from './services/footageService.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -21,6 +26,9 @@ const PORT = process.env.PORT || 3001;
 app.use(cors());
 app.use(express.json());
 app.use('/videos', express.static(path.join(__dirname, '../public/videos')));
+// Footage MoneyPrinterTurbo milik user sendiri (bukan hasil pencarian stok) — disajikan
+// buat preview <video> di UI Studio, sumbernya sama dengan yang dipakai render.
+app.use('/footage', express.static(footageService.dir));
 
 // Penyimpanan data lokal di database persisten
 let shortsHistory = dbService.getHistory();
@@ -40,6 +48,7 @@ app.get('/api/status', (req, res) => {
     version: '1.0.0',
     aiConfig: aiService.getConfig(),
     youtubeStatus: youtubeService.getStatus(),
+    facebookStatus: facebookService.getStatus(),
     schedulerConfig: schedulerService.getSchedulerConfig(),
     totalShortsCreated: shortsHistory.length
   });
@@ -106,15 +115,30 @@ app.get('/api/render/progress', (req, res) => {
   });
 });
 
-// Dapatkan Daftar Semua Shorts
+// Dapatkan Daftar Semua Shorts. Kalau file MP4-nya ternyata sudah tidak ada di disk (mis.
+// terhapus manual di luar aplikasi), URL-nya disamarkan jadi null di sini supaya UI menampilkan
+// badge "MP4 tidak tersedia" alih-alih tombol Putar/Download yang ujung-ujungnya 404.
 app.get('/api/shorts', (req, res) => {
-  res.json({ success: true, data: shortsHistory });
+  const data = shortsHistory.map((item) => {
+    const filename = item.renderedVideo?.videoFilename;
+    if (!filename) return item;
+    const videoPath = path.join(__dirname, '../public/videos', filename);
+    if (fs.existsSync(videoPath)) return item;
+    return {
+      ...item,
+      renderedVideo: { ...item.renderedVideo, videoUrl: null, downloadUrl: null },
+      uploadResult: item.uploadResult
+        ? { ...item.uploadResult, localVideoUrl: null, localDownloadUrl: null }
+        : item.uploadResult
+    };
+  });
+  res.json({ success: true, data });
 });
 
 // Buat Baru dari Awal hingga Upload Lengkap (One-Click Generate & Upload)
 app.post('/api/shorts/create-and-upload', async (req, res) => {
   try {
-    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds } = req.body;
+    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds, localFootage } = req.body;
 
     // Jika title sudah tersedia (dari frontend), gunakan langsung; jika tidak, generate.
     // durationSeconds harus ikut disertakan di sini — sebelumnya field ini tidak dibawa,
@@ -133,16 +157,19 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
       narration: aiContent.narration,
       scenes: aiContent.scenes,
       themeId,
-      durationSeconds: aiContent.durationSeconds
+      durationSeconds: aiContent.durationSeconds,
+      // Footage MoneyPrinterTurbo milik user sendiri, urut sesuai adegan (array nama file di
+      // folder local_videos) — kalau diisi, dipakai menggantikan pencarian stok Pexels/Pixabay.
+      localFootage: Array.isArray(localFootage) && localFootage.length > 0 ? localFootage : undefined
     });
 
-    // 3. Upload ke YouTube Shorts API (non-fatal jika gagal).
+    // 3. Upload ke Facebook Page lewat Graph API (non-fatal jika gagal).
     // privacyStatus 'none' berarti user memilih render saja: videonya cukup tersimpan lokal
-    // dan sama sekali tidak dikirim ke YouTube.
+    // dan sama sekali tidak dikirim ke Facebook.
     let uploadResult = null;
     if (privacyStatus !== 'none') {
       try {
-        uploadResult = await youtubeService.uploadShort({
+        uploadResult = await facebookService.uploadShort({
           title: aiContent.title,
           description: aiContent.description,
           tags: aiContent.tags,
@@ -150,7 +177,7 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
           videoData: renderedVideo
         });
       } catch (uploadErr) {
-        console.warn('Upload YouTube gagal (non-fatal):', uploadErr.message);
+        console.warn('Upload Facebook gagal (non-fatal):', uploadErr.message);
       }
     }
 
@@ -178,8 +205,20 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
   }
 });
 
-// Hapus Short dari Riwayat
+// Hapus Short dari Riwayat — file MP4 di disk ikut dihapus (bukan cuma catatan riwayatnya),
+// sesuai yang dijanjikan dialog konfirmasi di UI ("File MP4-nya tidak bisa dikembalikan").
+// Tanpa ini, video lama menumpuk permanen di public/videos walau sudah "dihapus" dari riwayat.
 app.delete('/api/shorts/:id', (req, res) => {
+  const target = shortsHistory.find(s => s.id === req.params.id);
+  const filename = target?.renderedVideo?.videoFilename;
+  if (filename) {
+    const videoPath = path.join(__dirname, '../public/videos', filename);
+    try {
+      if (fs.existsSync(videoPath)) fs.unlinkSync(videoPath);
+    } catch (err) {
+      console.warn('Gagal menghapus file video saat hapus riwayat:', err.message);
+    }
+  }
   shortsHistory = shortsHistory.filter(s => s.id !== req.params.id);
   dbService.saveHistory(shortsHistory);
   res.json({ success: true, data: shortsHistory });
@@ -192,8 +231,13 @@ app.get('/api/settings', (req, res) => {
     data: {
       aiConfig: dbService.getAiConfig(),
       youtubeConfig: dbService.getYouTubeConfig(),
+      facebookConfig: dbService.getFacebookConfig(),
       videoConfig: dbService.getVideoConfig(),
-      ttsConfig: ttsService.getConfig()
+      ttsConfig: ttsService.getConfig(),
+      // dbService.getSearchConfig() (bukan searchService.getConfig()) sengaja dipakai di sini
+      // supaya API key mentahnya ikut terkirim — sama seperti videoConfig.falApiKey — jadi form
+      // Pengaturan bisa menampilkan/mengedit key yang sudah tersimpan, bukan cuma status ada/tidak.
+      searchConfig: dbService.getSearchConfig()
     }
   });
 });
@@ -212,6 +256,13 @@ app.post('/api/settings/ai', (req, res) => {
   res.json({ success: true, data: updated });
 });
 
+// Pencarian web (Tavily, opsional) buat menyuntik fakta terkini ke naskah & cek fakta
+app.post('/api/settings/search', (req, res) => {
+  const { enabled, tavilyApiKey } = req.body;
+  searchService.updateConfig({ enabled, tavilyApiKey });
+  res.json({ success: true, data: searchService.getConfig() });
+});
+
 // Pengaturan Video Generator (Template FFmpeg, AI Video via fal.ai, atau MoneyPrinterTurbo)
 app.post('/api/settings/video', (req, res) => {
   const { provider, falApiKey, falModel, resolution, aiBackgroundImages, moneyPrinterEndpoint } = req.body;
@@ -224,6 +275,49 @@ app.post('/api/settings/video', (req, res) => {
 app.get('/api/settings/moneyprinter/ping', async (req, res) => {
   const alive = await moneyPrinterService.pingServer();
   res.json({ success: true, data: { alive, endpoint: moneyPrinterService.endpoint } });
+});
+
+// ============ Footage sendiri (MoneyPrinterTurbo, video_source: 'local') ============
+// Supaya video bisa menampilkan wajah/momen sungguhan (mis. tokoh publik tertentu) yang
+// memang TIDAK ADA di database stok Pexels/Pixabay — user upload footage yang haknya sendiri,
+// naskah/suara/subtitle/potong-sambungnya tetap otomatis seperti biasa.
+const footageUpload = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      try {
+        footageService.ensureDir();
+        cb(null, footageService.dir);
+      } catch (err) {
+        cb(err);
+      }
+    },
+    filename: (req, file, cb) => cb(null, footageService.sanitizeFilename(file.originalname))
+  }),
+  limits: { fileSize: 500 * 1024 * 1024, files: 10 }, // 500MB/file, maks 10 file sekaligus
+  fileFilter: (req, file, cb) => {
+    cb(null, footageService.isAllowedExt(file.originalname));
+  }
+});
+
+app.get('/api/footage', (req, res) => {
+  res.json({ success: true, data: { installed: footageService.isMoneyPrinterInstalled, clips: footageService.list() } });
+});
+
+app.post('/api/footage/upload', footageUpload.array('clips', 10), (req, res) => {
+  const uploaded = (req.files || []).map((f) => f.filename);
+  if (uploaded.length === 0) {
+    return res.status(400).json({ success: false, message: 'Tidak ada file valid yang ter-upload (format didukung: mp4, mov, webm, mkv, avi).' });
+  }
+  res.json({ success: true, data: { uploaded, clips: footageService.list() } });
+});
+
+app.delete('/api/footage/:filename', (req, res) => {
+  try {
+    footageService.delete(req.params.filename);
+    res.json({ success: true, data: footageService.list() });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
 });
 
 // Pengaturan Narator Suara (TTS gratis via edge-tts, tanpa API key)
@@ -291,6 +385,31 @@ app.post('/api/youtube/oauth/disconnect', (req, res) => {
   res.json({ success: true, youtubeStatus: youtubeService.getStatus() });
 });
 
+// ============ Facebook Page (Graph API) — target upload otomatis saat ini ============
+// Beda dari YouTube: tidak ada alur OAuth redirect di aplikasi ini. User generate PAGE ACCESS
+// TOKEN sendiri dari Meta for Developers (App & Page miliknya sendiri) lalu tempel langsung di
+// Pengaturan — lihat README bagian "Upload ke Facebook Page".
+app.post('/api/settings/facebook', (req, res) => {
+  const { pageName, pageId, pageAccessToken } = req.body;
+  facebookService.updateCredentials({ pageName, pageId, pageAccessToken });
+  res.json({ success: true, data: dbService.getFacebookConfig(), facebookStatus: facebookService.getStatus() });
+});
+
+app.get('/api/facebook/status', (req, res) => {
+  res.json(facebookService.getStatus());
+});
+
+// Cek cepat apakah Page ID + Access Token yang disimpan memang valid & bisa dipakai upload
+app.post('/api/facebook/verify', async (req, res) => {
+  const result = await facebookService.verifyConnection();
+  res.json({ success: true, data: result });
+});
+
+app.post('/api/facebook/disconnect', (req, res) => {
+  facebookService.disconnect();
+  res.json({ success: true, facebookStatus: facebookService.getStatus() });
+});
+
 // Penjadwal Otomatis 3x Seminggu (Scheduler)
 app.get('/api/scheduler/config', (req, res) => {
   res.json({ success: true, data: schedulerService.getSchedulerConfig() });
@@ -325,6 +444,16 @@ app.post('/api/scheduler/run-now', async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
   }
+});
+
+// Multer melempar error (mis. file kelewat besar) lewat next(err), bukan lewat handler biasa —
+// tangkap di sini supaya responsnya JSON yang jelas, bukan HTML error page default Express.
+// Harus di akhir (setelah semua route) sesuai konvensi Express untuk error-handling middleware.
+app.use((err, req, res, next) => {
+  if (err instanceof multer.MulterError || err?.message) {
+    return res.status(400).json({ success: false, message: err.message });
+  }
+  next(err);
 });
 
 app.listen(PORT, () => {

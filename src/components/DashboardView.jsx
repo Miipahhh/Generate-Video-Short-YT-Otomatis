@@ -13,8 +13,9 @@ function formatNextRun(iso) {
 
 export default function DashboardView({ systemStatus, onNavigate }) {
   const scheduler = systemStatus?.schedulerConfig;
-  const youtube = systemStatus?.youtubeStatus;
+  const facebook = systemStatus?.facebookStatus;
   const queue = scheduler?.topicQueue?.filter((t) => t.status !== 'COMPLETED') || [];
+  const lastRun = scheduler?.executionLog?.[0];
 
   const stats = [
     {
@@ -22,9 +23,9 @@ export default function DashboardView({ systemStatus, onNavigate }) {
       value: systemStatus ? systemStatus.totalShortsCreated : '—'
     },
     {
-      label: 'YouTube',
-      value: youtube?.isOAuthConnected ? 'Terhubung' : 'Sandbox',
-      note: youtube?.isOAuthConnected ? youtube.channelName : 'Upload masih simulasi'
+      label: 'Facebook',
+      value: facebook?.isConnected ? 'Terhubung' : 'Sandbox',
+      note: facebook?.isConnected ? facebook.pageName : 'Upload masih simulasi'
     },
     {
       label: 'Jadwal berikutnya',
@@ -53,6 +54,17 @@ export default function DashboardView({ systemStatus, onNavigate }) {
       {!systemStatus && (
         <div className="note" style={{ marginBottom: 16 }}>
           Backend belum terhubung. Jalankan <code>npm run dev</code> lalu muat ulang halaman.
+        </div>
+      )}
+
+      {lastRun?.status === 'failed' && (
+        <div className="note danger" style={{ marginBottom: 16, cursor: 'pointer' }} onClick={() => onNavigate('scheduler')}>
+          <strong>Eksekusi auto-pilot terakhir gagal</strong> — {lastRun.message}. Klik untuk lihat detail di tab Jadwal.
+        </div>
+      )}
+      {lastRun?.status === 'blocked' && (
+        <div className="note warn" style={{ marginBottom: 16, cursor: 'pointer' }} onClick={() => onNavigate('scheduler')}>
+          <strong>Auto-pilot menahan 1 video</strong> karena cek keamanan konten — perlu direview manual. Klik untuk lihat detail.
         </div>
       )}
 

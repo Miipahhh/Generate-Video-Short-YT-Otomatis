@@ -38,6 +38,10 @@ export default function App() {
     tau: RENDER_PACE[studio.videoProvider] || RENDER_PACE.template,
     poll: true
   });
+  // Cek fakta biasanya cepat (satu panggilan AI ringan, bukan generate naskah/render video),
+  // jadi tau-nya dibikin jauh lebih kecil supaya bar-nya kelihatan bergerak wajar, bukan
+  // merambat lambat seperti proses berat.
+  const factCheckProgress = useProgress(studio.isFactChecking, { tau: 12 });
   const activeStudioProgress = studio.isGenerating ? genProgress : renderProgress;
   const showStudioPill = activeTab !== 'studio' && (studio.isGenerating || studio.isRendering);
 
@@ -65,25 +69,27 @@ export default function App() {
     return () => clearInterval(interval);
   }, []);
 
-  // Hasil redirect dari alur OAuth Google (/api/youtube/oauth/callback)
-  useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('youtube') === 'connected') {
-      setActiveTab('settings');
-      toast.success('Akun Google tersambung. Upload berikutnya masuk ke channel asli.', { title: 'YouTube terhubung' });
-      window.history.replaceState({}, '', window.location.pathname);
-      fetchStatus();
-    }
-  }, []);
-
   const handleShortCreated = (newShort) => {
     const upload = newShort.uploadResult;
 
-    // Video bisa selesai dirender tapi gagal diupload (izin Google kedaluwarsa, kuota habis).
+    // Auto-pilot memblokir upload otomatis kalau cek keamanan konten menandai risiko — video
+    // TIDAK dirender/upload sama sekali, tapi tetap masuk Riwayat buat direview manual. Ini
+    // bukan kegagalan teknis, jadi jangan dikira "berhasil" (hijau) ataupun "error" (merah).
+    if (newShort.type === 'AUTO_SCHEDULED_BLOCKED') {
+      toast(newShort.safetyCheck?.overallNote || 'Auto-pilot menahan topik ini karena berpotensi melanggar guideline.', {
+        title: `Auto-pilot ditahan — "${newShort.title}"`,
+        type: 'info',
+        duration: 12000
+      });
+      fetchStatus();
+      return;
+    }
+
+    // Video bisa selesai dirender tapi gagal diupload (token Facebook kedaluwarsa, dll).
     // Kasus itu diberi tahu apa adanya, bukan disamarkan jadi notifikasi sukses.
     if (upload && upload.success === false) {
-      toast.error(upload.error || 'Video berhasil dirender, tapi gagal diupload ke YouTube.', {
-        title: 'Upload YouTube gagal',
+      toast.error(upload.error || 'Video berhasil dirender, tapi gagal diupload ke Facebook.', {
+        title: 'Upload Facebook gagal',
         duration: 14000
       });
     } else if (!upload) {
@@ -95,7 +101,8 @@ export default function App() {
     } else {
       toast.success(newShort.title, {
         title: 'Video short selesai dibuat',
-        url: upload?.youtubeShortsUrl,
+        url: upload?.facebookVideoUrl,
+        linkLabel: 'Buka di Facebook',
         duration: 8000
       });
     }
@@ -180,6 +187,7 @@ export default function App() {
             onShortCreated={handleShortCreated}
             genProgress={genProgress}
             renderProgress={renderProgress}
+            factCheckProgress={factCheckProgress}
           />
         )}
         {activeTab === 'scheduler' && <SchedulerView onShortCreated={handleShortCreated} />}
