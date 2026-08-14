@@ -205,7 +205,8 @@ class SchedulerService {
         title: aiContent.title,
         narration: aiContent.narration,
         scenes: aiContent.scenes,
-        durationSeconds: aiContent.durationSeconds
+        durationSeconds: aiContent.durationSeconds,
+        niche: nextTopic.niche
       });
 
       const uploadResult = await facebookService.uploadShort({

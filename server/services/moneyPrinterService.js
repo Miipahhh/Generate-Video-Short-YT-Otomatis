@@ -26,6 +26,38 @@ const VOICE_GENDER_MAP = {
 };
 
 /**
+ * Backsound bawaan MoneyPrinterTurbo (resource/songs/output000.mp3 s/d output029.mp3) tidak
+ * punya metadata mood sama sekali, jadi bgm_type:'random' dulu benar-benar comot buta —
+ * video horor bisa kejatah lagu yang terdengar romantis. Daftar di bawah adalah hasil analisis
+ * fitur akustik nyata (tempo/BPM, energi RMS, kecerahan spektral, mode major/minor lewat
+ * korelasi profil Krumhansl-Schmuckler) atas seluruh 29 track, dikelompokkan jadi 3 level energi.
+ * TEMUAN PENTING: seluruh 29 track ternyata bernada MAJOR/cerah (khas musik stok
+ * "corporate/uplifting" generik) — tidak ada satupun track yang benar-benar gelap/tegang.
+ * Makanya niche horor/misteri/konspirasi di resolveBgm() di bawah sengaja dimatikan
+ * backsound-nya sama sekali (bukan dipaksa pilih yang "paling mendekati"), karena hening jauh
+ * lebih cocok untuk horor daripada musik ceria yang tetap terasa nyeleneh.
+ */
+const BGM_MOOD_BUCKETS = {
+  // Tempo lambat (51-103 BPM), energi & kecerahan lebih rendah — paling cocok buat konten
+  // yang butuh nuansa lembut/tenang (cerita, hubungan/percintaan).
+  tenang: [
+    'output022.mp3', 'output010.mp3', 'output007.mp3', 'output011.mp3', 'output018.mp3',
+    'output029.mp3', 'output003.mp3', 'output021.mp3', 'output002.mp3'
+  ],
+  // Tempo & energi menengah — default aman buat konten fakta/informasi umum.
+  netral: [
+    'output006.mp3', 'output017.mp3', 'output028.mp3', 'output005.mp3', 'output013.mp3',
+    'output024.mp3', 'output009.mp3', 'output020.mp3', 'output004.mp3', 'output000.mp3'
+  ],
+  // Tempo cepat (172-185 BPM), energi & kecerahan tertinggi — buat konten yang butuh nuansa
+  // semangat/upbeat (motivasi, teknologi, pop culture).
+  energik: [
+    'output019.mp3', 'output025.mp3', 'output008.mp3', 'output014.mp3', 'output016.mp3',
+    'output015.mp3', 'output001.mp3', 'output027.mp3', 'output023.mp3', 'output012.mp3'
+  ]
+};
+
+/**
  * Integrasi ke MoneyPrinterTurbo (https://github.com/harry0703/MoneyPrinterTurbo) —
  * generator video short open-source berbasis Python yang mencocokkan footage stok asli
  * (Pexels/Pixabay/Coverr) dengan naskah narasi, lalu merender subtitle & audio TTS
@@ -84,6 +116,26 @@ class MoneyPrinterService {
   }
 
   /**
+   * Pilih backsound sesuai mood niche, bukan asal random dari semua 29 track. Pakai kategori
+   * mode cerita yang sudah ada di aiService (detectStoryMode) supaya konsisten dengan logika
+   * naskah/durasi, bukan bikin klasifikasi niche baru yang terpisah.
+   * - mystery (horor/misteri/konspirasi): backsound DIMATIKAN — lihat catatan BGM_MOOD_BUCKETS,
+   *   tidak ada satupun track bawaan yang cocok, hening lebih baik daripada musik ceria dipaksakan.
+   * - motivation → bucket energik, relationship/fiction → tenang, sisanya (facts, dst) → netral.
+   */
+  resolveBgm(niche) {
+    const mode = aiService.detectStoryMode(niche || '');
+    if (mode === 'mystery') {
+      return { bgm_type: '', bgm_file: '', bgm_volume: 0 };
+    }
+    const bucketByMode = { motivation: 'energik', relationship: 'tenang', fiction: 'tenang' };
+    const bucketName = bucketByMode[mode] || 'netral';
+    const files = BGM_MOOD_BUCKETS[bucketName];
+    const file = files[Math.floor(Math.random() * files.length)];
+    return { bgm_type: 'random', bgm_file: file, bgm_volume: 0.2 };
+  }
+
+  /**
    * Cek cepat apakah server MoneyPrinterTurbo memang menyala di endpoint yang dikonfigurasi,
    * supaya kita bisa kasih pesan error yang jelas ("server belum jalan") daripada timeout
    * generik kalau user lupa menjalankan start-moneyprinter.bat.
@@ -129,7 +181,7 @@ class MoneyPrinterService {
    * video_script), supaya MPT tidak menulis ulang naskahnya sendiri — MPT hanya bertugas
    * mencocokkan footage stok, mensintesis suara (edge-tts internal), dan membakar subtitle.
    */
-  async attemptGenerateVideo({ title, narration, scenes, durationSeconds, ttsVoice, ttsRate, localFootage }) {
+  async attemptGenerateVideo({ title, narration, scenes, durationSeconds, niche, ttsVoice, ttsRate, localFootage }) {
     const alive = await this.pingServer();
     if (!alive) {
       throw new Error(`Server MoneyPrinterTurbo tidak terjangkau di ${this.endpoint}. Jalankan start-moneyprinter.bat dulu.`);
@@ -166,6 +218,10 @@ class MoneyPrinterService {
     // yang related secara visual. Gagal/null → dibiarkan MPT auto-generate sendiri (non-fatal).
     const searchTerms = useLocalFootage ? null : await aiService.generateVideoSearchTerms(title, scenes);
 
+    // Backsound dipilih sesuai mood niche (lihat resolveBgm/BGM_MOOD_BUCKETS di atas), bukan
+    // asal random dari semua track — itu penyebab video horor bisa kejatah lagu romantis.
+    const bgm = this.resolveBgm(niche);
+
     let createRes;
     try {
       createRes = await axios.post(`${this.endpoint}/api/v1/videos`, {
@@ -180,8 +236,7 @@ class MoneyPrinterService {
         voice_name: voiceName,
         voice_rate: voiceRate,
         subtitle_enabled: true,
-        bgm_type: 'random',
-        bgm_volume: 0.2,
+        ...bgm,
         // PENTING: tanpa ini, MoneyPrinterTurbo generate kata kunci pencarian ACAK dari
         // judul+naskah, lalu mengumpulkan SEMUA footage hasil pencarian dari semua kata kunci
         // itu jadi satu kolam dan MENGACAKNYA (video_concat_mode 'random') sebelum ditempel ke

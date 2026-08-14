@@ -23,7 +23,24 @@ const __dirname = path.dirname(__filename);
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(cors());
+// CORS dibatasi ke origin frontend aplikasi ini saja (dev di 5173, `vite preview` di 4173).
+// Sebelumnya cors() tanpa opsi mengirim "Access-Control-Allow-Origin: *" di SEMUA respons —
+// termasuk /api/settings yang sengaja mengembalikan API key mentah (AI, fal.ai, Tavily, Page
+// Access Token Facebook) supaya form Pengaturan bisa menampilkan/mengedit key tersimpan.
+// Wildcard itu berarti SEMBARANG website yang dibuka di browser yang sama bisa diam-diam
+// fetch('http://localhost:3001/api/settings') dan mencuri semua key itu (serangan localhost
+// klasik lewat CORS permisif, bukan teoretis). Origin kosong (curl, alat non-browser) tetap
+// diizinkan karena CORS memang cuma ditegakkan browser, bukan proteksi akses server-to-server.
+const ALLOWED_ORIGINS = [
+  'http://localhost:5173', 'http://127.0.0.1:5173',
+  'http://localhost:4173', 'http://127.0.0.1:4173'
+];
+app.use(cors({
+  origin: (origin, callback) => {
+    if (!origin || ALLOWED_ORIGINS.includes(origin)) return callback(null, true);
+    callback(new Error('Origin tidak diizinkan oleh CORS'));
+  }
+}));
 app.use(express.json());
 app.use('/videos', express.static(path.join(__dirname, '../public/videos')));
 // Footage MoneyPrinterTurbo milik user sendiri (bukan hasil pencarian stok) — disajikan
@@ -158,6 +175,10 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
       scenes: aiContent.scenes,
       themeId,
       durationSeconds: aiContent.durationSeconds,
+      // niche dipakai moneyPrinterService buat pilih backsound yang moodnya sesuai (lihat
+      // resolveBgm di moneyPrinterService.js) — tanpa ini, sebelumnya niche tidak pernah
+      // sampai ke renderer, jadi backsound MoneyPrinterTurbo selalu asal comot acak.
+      niche,
       // Footage MoneyPrinterTurbo milik user sendiri, urut sesuai adegan (array nama file di
       // folder local_videos) — kalau diisi, dipakai menggantikan pencarian stok Pexels/Pixabay.
       localFootage: Array.isArray(localFootage) && localFootage.length > 0 ? localFootage : undefined

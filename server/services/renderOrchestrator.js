@@ -33,6 +33,7 @@ async function renderShort({ title, narration, scenes, themeId, durationSeconds,
         narration,
         scenes,
         durationSeconds,
+        niche,
         ttsVoice: ttsService.voice,
         ttsRate: ttsService.rate,
         localFootage

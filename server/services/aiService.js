@@ -202,7 +202,13 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
             ],
             temperature: 0.7,
             max_tokens: 8000,
-            stream: false
+            stream: false,
+            // Sebagian model gratis di balik combo 9Router (mis. nemotron-3-ultra-free) adalah
+            // model "reasoning" yang diam-diam menghabiskan seluruh max_tokens buat proses
+            // berpikir internal sebelum sempat menulis jawaban asli (finish_reason "length",
+            // content kepotong) — ini penyebab utama generate kadang nyangkut lama lalu gagal
+            // parse JSON. Matikan reasoning-nya supaya model langsung jawab.
+            reasoning: { exclude: true, enabled: false }
           },
           { headers, timeout: 340000 }
         );
@@ -230,7 +236,8 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
                     { role: 'user', content: prompt }
                   ],
                   temperature: 0.7,
-                  stream: false
+                  stream: false,
+                  reasoning: { exclude: true, enabled: false }
                 },
                 { headers, timeout: 150000 }
               );
@@ -270,7 +277,8 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
                       { role: 'user', content: prompt }
                     ],
                     temperature: 0.7,
-                    stream: false
+                    stream: false,
+                    reasoning: { exclude: true, enabled: false }
                   },
                   { headers, timeout: 60000 }
                 );
@@ -354,7 +362,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           ],
           temperature: 0.2,
           max_tokens: 1800,
-          stream: false
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout }
       );
@@ -445,7 +454,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, dengan skema PERSIS SAMA seperti NA
           ],
           temperature: 0.4,
           max_tokens: 8000,
-          stream: false
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout }
       );
@@ -525,7 +535,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           ],
           temperature: 0.1,
           max_tokens: 800,
-          stream: false
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout: 45000 }
       );
@@ -617,7 +628,8 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
           ],
           temperature: 0.4,
           max_tokens: 600,
-          stream: false
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout: 30000 }
       );
@@ -699,7 +711,8 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
           ],
           temperature: 0.95,
           max_tokens: 200,
-          stream: false
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
         },
         { headers, timeout: 20000 }
       );
