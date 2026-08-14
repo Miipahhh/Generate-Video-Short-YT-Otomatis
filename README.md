@@ -5,7 +5,7 @@ Aplikasi web (React + Express) untuk membuat video Shorts vertikal (9:16) secara
 ## Fitur
 
 - **Studio AI** — generate judul viral, deskripsi SEO, tag, dan naskah narasi per-scene lewat model AI (9Router/OpenRouter, kompatibel format OpenAI Chat Completions), dengan fallback konten offline kalau API tidak terjangkau.
-- **Render video 9:16** — dua mode: template FFmpeg (background bertema + teks caption/narasi, gratis & instan) atau **AI Video sungguhan** via fal.ai (visual digenerate AI sesuai topik/scene, berbayar per detik).
+- **Render video 9:16** — dua mode: template FFmpeg (background bertema + teks caption/narasi, gratis & instan) atau **AI Video sungguhan** via fal.ai (visual digenerate AI sesuai topik/scene, berbayar per detik). Caption/narasi per-scene dibakar otomatis di kedua mode, dipetakan ke jendela waktu scene masing-masing.
 - **Scheduler otomatis** — cron job (Senin/Rabu/Jumat 18:00 WIB) mengambil topik teratas dari antrean dan menjalankan alur generate → cek keamanan konten → render → upload tanpa campur tangan manual. Antrean mulai kosong; kalau kosong saat jadwal tiba, topik diminta ke AI. Status auto-pilot, antrean, dan riwayat eksekusi ikut tersimpan di `server/data/database.json`, jadi tidak hilang saat server di-restart.
 - **Cek keamanan konten** — sebelum auto-pilot upload otomatis, AI menilai naskah terhadap risiko pelanggaran community guideline (ujaran kebencian, misinformasi berbahaya, dll). Kalau berisiko, upload otomatis dibatalkan (videonya tetap masuk Riwayat buat direview manual).
 - **Riwayat** — semua short yang dibuat tersimpan permanen di `server/data/database.json`.

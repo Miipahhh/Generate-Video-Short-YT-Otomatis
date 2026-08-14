@@ -5,6 +5,7 @@ import fs from 'fs';
 import { fileURLToPath } from 'url';
 import ttsService from './ttsService.js';
 import aiVideoService from './aiVideoService.js';
+import { sanitizeText, getCaption, getNarration, wrapText, buildAnimatedDrawtext } from './captionRenderer.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -26,80 +27,6 @@ class VideoRendererService {
   }
 
   getAvailableThemes() { return this.bgThemes; }
-
-  sanitizeText(str = '', maxLen = 55) {
-    return (str || '')
-      // Buang emoji: font Poppins Bold yang dipakai untuk overlay video tidak punya glyph
-      // emoji berwarna, jadi kalau dibiarkan akan muncul kotak/tofu yang jelek di video.
-      .replace(/[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}\u{2190}-\u{21FF}\u{2B00}-\u{2BFF}]/gu, '')
-      .replace(/['":;\\]/g, '')
-      .replace(/\n/g, ' ')
-      .trim()
-      .slice(0, maxLen);
-  }
-
-  getCaption(scene) { return scene?.captionText || scene?.caption || ''; }
-  getNarration(scene) { return scene?.narrationSegment || scene?.narration || ''; }
-
-  /**
-   * Bungkus teks jadi beberapa baris (seperti subtitle) supaya SELALU muat di lebar canvas
-   * 720px, bukan satu baris panjang yang kepotong/keluar layar seperti sebelumnya. Lebar
-   * karakter diperkirakan dari fontsize (estimasi kasar untuk Poppins Bold), dibatasi maksimal
-   * `maxLines` baris — kalau masih kepanjangan, baris terakhir dipotong dengan elipsis "…".
-   */
-  wrapText(text, fontsize, maxLines = 3) {
-    const clean = (text || '').trim();
-    if (!clean) return '';
-    const avgCharWidth = fontsize * 0.56;
-    const maxChars = Math.max(6, Math.floor((W - 80) / avgCharWidth));
-    const words = clean.split(/\s+/).filter(Boolean);
-
-    const lines = [];
-    let current = '';
-    let idx = 0;
-    while (idx < words.length) {
-      const w = words[idx];
-      const test = current ? `${current} ${w}` : w;
-      if (test.length > maxChars && current) {
-        lines.push(current);
-        current = '';
-        if (lines.length >= maxLines) break;
-      } else {
-        current = test;
-        idx++;
-      }
-    }
-    const consumedAll = idx >= words.length;
-    if (current && lines.length < maxLines) {
-      lines.push(current);
-    }
-
-    if (!consumedAll) {
-      let last = lines[lines.length - 1] || '';
-      if (last.length > maxChars - 1) last = last.slice(0, maxChars - 1).trimEnd();
-      lines[lines.length - 1] = last.replace(/[.,!?]+$/, '') + '…';
-    }
-    return lines.join('\n');
-  }
-
-  /**
-   * Bangun satu filter drawtext dengan animasi fade-in/out + sedikit slide-up, supaya teks
-   * tidak muncul/hilang secara kaku (potong langsung) seperti sebelumnya. `withBox` menambah
-   * pill/box semi-transparan di belakang teks (dipakai untuk caption utama, bukan subtitle).
-   */
-  buildAnimatedDrawtext({ fontfile, text, color, fontsize, y, t0, t1, withBox = false }) {
-    const dur = Math.max(t1 - t0, 0.3);
-    const fade = Math.min(0.25, dur / 3);
-    const fadeS = fade.toFixed(2);
-    const t0s = t0.toFixed(2);
-    const t1s = t1.toFixed(2);
-    const fadeInEnd = (t0 + fade).toFixed(2);
-    const fadeOutStart = (t1 - fade).toFixed(2);
-    const alphaExpr = `if(lt(t\\,${fadeInEnd})\\,(t-${t0s})/${fadeS}\\,if(lt(t\\,${fadeOutStart})\\,1\\,(${t1s}-t)/${fadeS}))`;
-    const yExpr = `${y}+16*(1-min((t-${t0s})/${fadeS}\\,1))`;
-    const boxPart = withBox ? ':box=1:boxcolor=black@0.35:boxborderw=14' : '';
-    return `drawtext=fontfile='${fontfile}':text='${text}':fontcolor=${color}:fontsize=${fontsize}:x=(w-text_w)/2:y='${yExpr}':alpha='${alphaExpr}'${boxPart}:enable='between(t\\,${t0s}\\,${t1s})'`;
-  }
 
   /**
    * Download SATU gambar background dengan seed unik dari Picsum Photos (foto stok acak,
@@ -154,7 +81,7 @@ class VideoRendererService {
     const filename = `short_${Date.now()}.mp4`;
     const outputPath = path.join(this.videosDir, filename);
     const fontPath = 'public/assets/render/poppins-bold.ttf';
-    const cleanTitle = this.sanitizeText(title || 'AI SHORTS STUDIO');
+    const cleanTitle = sanitizeText(title || 'AI SHORTS STUDIO');
 
     // Coba sintesis narator suara asli (edge-tts, gratis) dari naskah narasi. Kalau berhasil,
     // durasi video disesuaikan mengikuti panjang audio narasi sungguhan (bukan angka default).
@@ -196,8 +123,8 @@ class VideoRendererService {
     const WATERMARK_Y = 1190;
 
     const draws = [];
-    const wrappedTitle = this.wrapText(cleanTitle, 38, 2);
-    draws.push(this.buildAnimatedDrawtext({
+    const wrappedTitle = wrapText(cleanTitle, 38, W, 2);
+    draws.push(buildAnimatedDrawtext({
       fontfile: fontPath, text: wrappedTitle, color: 'white', fontsize: 38, y: 130,
       t0: 0, t1: Math.min(3, durationSeconds), withBox: true
     }));
@@ -206,16 +133,16 @@ class VideoRendererService {
       // sanitizeText tidak lagi memotong paksa di 55 karakter — wrapText di bawah yang
       // membungkus teks jadi beberapa baris seperti subtitle, menyesuaikan lebar canvas 720px,
       // supaya teks TIDAK kepotong/keluar layar seperti sebelumnya.
-      const capRaw = this.sanitizeText(this.getCaption(sc[i]), 90);
-      const narRaw = this.sanitizeText(this.getNarration(sc[i]), 170);
+      const capRaw = sanitizeText(getCaption(sc[i]), 90);
+      const narRaw = sanitizeText(getNarration(sc[i]), 170);
       const t0 = i * segDur;
       const t1 = Math.min((i + 1) * segDur, durationSeconds);
 
       let capLineCount = 0;
       if (capRaw) {
-        const wrappedCap = this.wrapText(capRaw, CAPTION_FONTSIZE, 2);
+        const wrappedCap = wrapText(capRaw, CAPTION_FONTSIZE, W, 2);
         capLineCount = wrappedCap.split('\n').length;
-        draws.push(this.buildAnimatedDrawtext({
+        draws.push(buildAnimatedDrawtext({
           fontfile: fontPath, text: wrappedCap, color: theme.accent, fontsize: CAPTION_FONTSIZE, y: CAPTION_TOP_Y,
           t0, t1, withBox: true
         }));
@@ -228,8 +155,8 @@ class VideoRendererService {
           CAPTION_TOP_Y + capLineCount * CAPTION_LINE_HEIGHT + 34,
           WATERMARK_Y - NARRATION_LINE_HEIGHT * 3 - 30
         );
-        const wrappedNar = this.wrapText(narRaw, NARRATION_FONTSIZE, 3);
-        draws.push(this.buildAnimatedDrawtext({
+        const wrappedNar = wrapText(narRaw, NARRATION_FONTSIZE, W, 3);
+        draws.push(buildAnimatedDrawtext({
           fontfile: fontPath, text: wrappedNar, color: 'white', fontsize: NARRATION_FONTSIZE, y: narY,
           t0: Math.max(t0, 0.2), t1, withBox: false
         }));

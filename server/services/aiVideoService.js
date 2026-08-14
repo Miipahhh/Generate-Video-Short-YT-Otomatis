@@ -6,6 +6,7 @@ import { promisify } from 'util';
 import { fileURLToPath } from 'url';
 import dbService from './dbService.js';
 import ttsService from './ttsService.js';
+import { sanitizeText, getCaption, getNarration, wrapText, buildAnimatedDrawtext } from './captionRenderer.js';
 
 const execFileAsync = promisify(execFile);
 const __filename = fileURLToPath(import.meta.url);
@@ -230,7 +231,7 @@ class AIVideoService {
     // Tempelkan judul + watermark ringan di atas video AI, dan ganti audionya dengan narasi TTS kalau ada
     const finalFilename = `ai_${Date.now()}.mp4`;
     const finalPath = path.join(this.videosDir, finalFilename);
-    const brandingOk = await this.overlayBranding(rawPath, finalPath, { title, durationSeconds: targetDuration, narrationAudioPath });
+    const brandingOk = await this.overlayBranding(rawPath, finalPath, { title, scenes, durationSeconds: targetDuration, narrationAudioPath });
     const outputFilename = brandingOk ? finalFilename : rawFilename;
     if (brandingOk && fs.existsSync(rawPath)) {
       try { fs.unlinkSync(rawPath); } catch { /* noop */ }
@@ -267,23 +268,88 @@ class AIVideoService {
     return err.message;
   }
 
-  sanitizeText(str = '') {
-    return (str || '').replace(/['":;\\]/g, '').replace(/\n/g, ' ').trim().slice(0, 55);
-  }
-
   /**
-   * Tempel judul (0-3 detik) + watermark permanen di atas video hasil AI.
+   * Tempel judul (0-3 detik) + caption/narasi per-scene + watermark permanen di atas video
+   * hasil AI. Sebelumnya video fal.ai sama sekali tanpa teks di layar sepanjang durasinya
+   * (prompt video-nya sendiri malah eksplisit minta "no subtitles, no on-screen text") — cuma
+   * judul 3 detik awal. Sekarang caption+narasi dibakar juga, dipetakan ke jendela waktu yang
+   * SAMA seperti yang dipakai buildPrompt() buat menyusun prompt visual per-shot, supaya teks
+   * di layar nyambung dengan apa yang "ditunjukkan" video di detik itu — pola & helper-nya
+   * (wrapText/buildAnimatedDrawtext) dipakai bareng dengan videoRendererService lewat
+   * captionRenderer.js, supaya gaya captionnya konsisten antar mode render.
    * Kalau ada narrationAudioPath (hasil TTS), audio bawaan video AI diganti dengan narasi itu
    * (dipotong pas sesuai durasi video, dengan fade-out halus di akhir). Kalau tidak ada,
    * audio asli dari video AI tetap dipakai apa adanya. Gagal total = pakai video mentah.
    */
-  async overlayBranding(inputPath, outputPath, { title, durationSeconds, narrationAudioPath }) {
+  async overlayBranding(inputPath, outputPath, { title, scenes, durationSeconds, narrationAudioPath }) {
     const fontPath = 'public/assets/render/poppins-bold.ttf';
-    const cleanTitle = this.sanitizeText(title || 'AI SHORTS STUDIO');
+    const cleanTitle = sanitizeText(title || 'AI SHORTS STUDIO', 55);
+
+    // Kanvas fal.ai bisa 720x1280 atau 1080x1920 tergantung setelan resolusi di Pengaturan —
+    // semua ukuran teks/posisi di bawah diskalakan dari referensi 720x1280 supaya tetap
+    // proporsional di kedua ukuran (sebelumnya hardcode satu ukuran, jadi kepencet/kekecilan
+    // kalau resolusinya 1080p).
+    const W = this.resolution === '1080p' ? 1080 : 720;
+    const H = this.resolution === '1080p' ? 1920 : 1280;
+    const SCALE = H / 1280;
+
+    const TITLE_FONTSIZE = Math.round(36 * SCALE);
+    const CAPTION_FONTSIZE = Math.round(34 * SCALE);
+    const NARRATION_FONTSIZE = Math.round(24 * SCALE);
+    const CAPTION_LINE_HEIGHT = CAPTION_FONTSIZE * 1.3;
+    const NARRATION_LINE_HEIGHT = NARRATION_FONTSIZE * 1.3;
+    // Caption ditaruh di sepertiga bawah layar (gaya subtitle Reels/TikTok umumnya), bukan
+    // atas — visual fal.ai memenuhi seluruh frame (beda dari mode template yang latarnya
+    // banyak ruang kosong di atas), jadi taruh di atas berisiko nutupin subjek utama video.
+    const CAPTION_TOP_Y = Math.round(820 * SCALE);
+    const WATERMARK_Y = Math.round(1190 * SCALE);
+
     const draws = [
-      `drawtext=fontfile='${fontPath}':text='${cleanTitle}':fontcolor=white:fontsize=36:x=(w-text_w)/2:y=120:box=1:boxcolor=black@0.4:boxborderw=14:enable='between(t,0,${Math.min(3, durationSeconds)})'`,
-      `drawtext=fontfile='${fontPath}':text='@AIShortsStudio | #shorts':fontcolor=white:fontsize=24:x=(w-text_w)/2:y=1190:box=1:boxcolor=black@0.4:boxborderw=10`
+      buildAnimatedDrawtext({
+        fontfile: fontPath, text: wrapText(cleanTitle, TITLE_FONTSIZE, W, 2), color: 'white', fontsize: TITLE_FONTSIZE, y: Math.round(120 * SCALE),
+        t0: 0, t1: Math.min(3, durationSeconds), withBox: true
+      })
     ];
+
+    // Caption + narasi per scene, dipetakan proporsional ke durationSeconds (sama seperti
+    // perShot di buildPrompt) — kalau scene tidak ada/kosong, cuma judul+watermark yang tampil
+    // (fallback aman, video tidak gagal render).
+    const sceneList = scenes && scenes.length ? scenes : [];
+    if (sceneList.length > 0) {
+      const perShot = durationSeconds / sceneList.length;
+      sceneList.forEach((scene, idx) => {
+        const t0 = idx * perShot;
+        const t1 = Math.min((idx + 1) * perShot, durationSeconds);
+        const capRaw = sanitizeText(getCaption(scene), 90);
+        const narRaw = sanitizeText(getNarration(scene), 170);
+
+        let capLineCount = 0;
+        if (capRaw) {
+          const wrappedCap = wrapText(capRaw, CAPTION_FONTSIZE, W, 2);
+          capLineCount = wrappedCap.split('\n').length;
+          draws.push(buildAnimatedDrawtext({
+            fontfile: fontPath, text: wrappedCap, color: '#00f2fe', fontsize: CAPTION_FONTSIZE, y: CAPTION_TOP_Y,
+            t0, t1, withBox: true
+          }));
+        }
+
+        if (narRaw) {
+          // Posisi narasi mengikuti tinggi caption di atasnya (dinamis), dibatasi supaya
+          // tidak menabrak watermark di bawahnya — pola sama seperti videoRendererService.
+          const narY = Math.min(
+            CAPTION_TOP_Y + capLineCount * CAPTION_LINE_HEIGHT + Math.round(24 * SCALE),
+            WATERMARK_Y - NARRATION_LINE_HEIGHT * 3 - Math.round(20 * SCALE)
+          );
+          const wrappedNar = wrapText(narRaw, NARRATION_FONTSIZE, W, 3);
+          draws.push(buildAnimatedDrawtext({
+            fontfile: fontPath, text: wrappedNar, color: 'white', fontsize: NARRATION_FONTSIZE, y: narY,
+            t0: Math.max(t0, 0.2), t1, withBox: false
+          }));
+        }
+      });
+    }
+
+    draws.push(`drawtext=fontfile='${fontPath}':text='@AIShortsStudio | #shorts':fontcolor=white:fontsize=${Math.round(24 * SCALE)}:x=(w-text_w)/2:y=${WATERMARK_Y}:box=1:boxcolor=black@0.4:boxborderw=10`);
 
     const fadeOutStart = Math.max(durationSeconds - 0.5, 0);
     const args = narrationAudioPath
