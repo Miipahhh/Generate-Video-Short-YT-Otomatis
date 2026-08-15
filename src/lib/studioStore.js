@@ -132,8 +132,39 @@ let state = {
   initialized: false
 };
 
+// Draft naskah disimpan ke localStorage supaya refresh halaman (atau nutup lalu buka lagi)
+// tidak menghilangkan naskah yang sudah digenerate tapi belum di-render/upload — sebelumnya
+// state ini murni di memori JS, hilang total begitu halaman di-reload. Sengaja cuma field yang
+// merepresentasikan "pekerjaan yang sedang berjalan", bukan semuanya (mis. footageLibrary tidak
+// perlu, itu selalu diambil ulang dari server).
+const DRAFT_STORAGE_KEY = 'aiShortsStudio.draft';
+const DRAFT_FIELDS = [
+  'topic', 'niche', 'tone', 'themeId', 'privacyStatus', 'targetDuration',
+  'result', 'videoUrl', 'fallbackReason', 'factCheck', 'continuationContext'
+];
+
+function saveDraft() {
+  try {
+    const draft = {};
+    for (const key of DRAFT_FIELDS) draft[key] = state[key];
+    localStorage.setItem(DRAFT_STORAGE_KEY, JSON.stringify(draft));
+  } catch {
+    // localStorage penuh/dinonaktifkan browser — non-fatal, draft cuma tidak kesimpen.
+  }
+}
+
+function loadDraft() {
+  try {
+    const raw = localStorage.getItem(DRAFT_STORAGE_KEY);
+    return raw ? JSON.parse(raw) : null;
+  } catch {
+    return null;
+  }
+}
+
 function setState(patch) {
   state = { ...state, ...patch };
+  if (DRAFT_FIELDS.some((key) => key in patch)) saveDraft();
   listeners.forEach((fn) => fn(state));
 }
 
@@ -146,14 +177,18 @@ export function subscribeStudio(fn) {
   return () => listeners.delete(fn);
 }
 
-/** Dipanggil sekali dari App.jsx saat aplikasi dimuat — topik awal & provider video aktif. */
+/**
+ * Dipanggil sekali dari App.jsx saat aplikasi dimuat — restore draft naskah terakhir (kalau
+ * ada, dari localStorage) supaya kerjaan yang belum sempat di-render/upload tidak hilang
+ * kena refresh. Kalau tidak ada draft (sesi baru/bersih), topik dibiarkan KOSONG — sebelumnya
+ * di sini auto-pilih topik acak dari TOPIC_BANK, tapi itu bikin bingung: kelihatan ada topik
+ * "muncul sendiri" padahal user belum ketik/pilih apa-apa. Sekarang topik acak cuma muncul
+ * kalau user memang minta lewat tombol "Ide acak"/"Ide trending".
+ */
 export async function initStudio() {
   if (state.initialized) return;
-  setState({ initialized: true });
-
-  await refreshUsedTopics();
-  const pick = pickUnusedTopic();
-  setState({ topic: pick.topic, niche: pick.niche, tone: pick.tone });
+  const draft = loadDraft();
+  setState({ initialized: true, ...(draft || {}) });
 
   axios
     .get('/api/settings')
