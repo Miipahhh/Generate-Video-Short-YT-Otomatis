@@ -25,6 +25,7 @@ import {
 } from '../lib/studioStore.js';
 import ProgressBar from './ui/ProgressBar.jsx';
 import FootagePicker from './ui/FootagePicker.jsx';
+import TypewriterText from './ui/TypewriterText.jsx';
 
 const VERDICT_LABEL = {
   akurat: 'Akurat',
@@ -252,7 +253,9 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
                     <span className="scene-num">{idx + 1}</span>
                     <div>
                       <div className="scene-caption">{scene.captionText}</div>
-                      {scene.narrationSegment && <div className="scene-narration">{scene.narrationSegment}</div>}
+                      {scene.narrationSegment && (
+                        <TypewriterText text={scene.narrationSegment} className="scene-narration" />
+                      )}
                     </div>
                   </div>
                 ))}
