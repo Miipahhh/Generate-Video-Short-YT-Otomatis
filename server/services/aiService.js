@@ -56,6 +56,19 @@ class AIService {
     if (model) this.model = model;
   }
 
+  /** Cek cepat apakah endpoint AI (9Router lokal / OpenRouter) terjangkau — dipakai panel
+   * "Status Sistem" di Dasbor supaya kelihatan sebelum generate gagal karena servicenya mati. */
+  async pingEndpoint() {
+    try {
+      const headers = {};
+      if (this.apiKey) headers['Authorization'] = `Bearer ${this.apiKey}`;
+      await axios.get(`${this.apiEndpoint}/models`, { headers, timeout: 4000 });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   getConfig() {
     return {
       apiEndpoint: this.apiEndpoint,

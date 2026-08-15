@@ -71,6 +71,13 @@ app.get('/api/status', (req, res) => {
   });
 });
 
+// Cek cepat apakah endpoint AI (9Router/OpenRouter) sedang terjangkau — dipakai panel
+// "Status Sistem" di Dasbor.
+app.get('/api/ai/ping', async (req, res) => {
+  const alive = await aiService.pingEndpoint();
+  res.json({ success: true, data: { alive, endpoint: aiService.apiEndpoint } });
+});
+
 // Generate Naskah, Judul, Deskripsi, Tag via AI Hermes
 app.post('/api/ai/generate', async (req, res) => {
   try {
