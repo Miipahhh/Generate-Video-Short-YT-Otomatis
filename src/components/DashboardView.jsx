@@ -225,7 +225,7 @@ export default function DashboardView({
             />
             <HealthDot
               label="Fakta terkini (Tavily)"
-              alive={config ? Boolean(config.searchConfig?.enabled && config.searchConfig?.hasApiKey) : null}
+              alive={config ? Boolean(config.searchConfig?.enabled && config.searchConfig?.tavilyApiKey) : null}
               note={config?.searchConfig?.enabled ? 'Aktif' : 'Nonaktif'}
             />
           </div>
