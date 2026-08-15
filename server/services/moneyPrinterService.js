@@ -236,6 +236,18 @@ class MoneyPrinterService {
         voice_name: voiceName,
         voice_rate: voiceRate,
         subtitle_enabled: true,
+        // Sebelumnya tidak pernah dikirim sama sekali, jadi MPT pakai default bawaannya
+        // sendiri: font STHeitiMedium.ttc (font Tionghoa, kurang cocok buat teks Indonesia,
+        // kesannya polos) dengan stroke tipis. BeVietnamPro-Bold (sudah ter-bundle di MPT,
+        // resource/fonts/) jauh lebih cocok buat teks Latin/Indonesia dan lebih tebal/viral —
+        // stroke hitam diperbesar juga supaya captionnya kelihatan "sudah diedit", bukan teks
+        // polos nempel di video.
+        subtitle_position: 'bottom',
+        font_name: 'BeVietnamPro-Bold.ttf',
+        font_size: 72,
+        text_fore_color: '#FFFFFF',
+        stroke_color: '#000000',
+        stroke_width: 2.5,
         ...bgm,
         // PENTING: tanpa ini, MoneyPrinterTurbo generate kata kunci pencarian ACAK dari
         // judul+naskah, lalu mengumpulkan SEMUA footage hasil pencarian dari semua kata kunci
