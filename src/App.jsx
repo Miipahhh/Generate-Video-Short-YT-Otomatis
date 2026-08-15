@@ -191,7 +191,7 @@ export default function App() {
           />
         )}
         {activeTab === 'scheduler' && <SchedulerView onShortCreated={handleShortCreated} />}
-        {activeTab === 'history' && <HistoryView />}
+        {activeTab === 'history' && <HistoryView onNavigate={setActiveTab} />}
         {activeTab === 'settings' && <SettingsView onSaved={fetchStatus} />}
       </main>
     </div>

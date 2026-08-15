@@ -1,5 +1,5 @@
 import React from 'react';
-import { Copy, Dices, Download, ShieldCheck, Wand2 } from 'lucide-react';
+import { Copy, Dices, Download, ShieldCheck, Wand2, TrendingUp, X } from 'lucide-react';
 import { toast } from '../lib/toast.js';
 import { useStudioState } from '../lib/useStudioState.js';
 import {
@@ -15,6 +15,8 @@ import {
   setTargetDuration,
   patchResult,
   randomizeTopic,
+  trendingTopic,
+  clearContinuation,
   generateScript,
   renderAndUpload,
   factCheckScript,
@@ -47,8 +49,8 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
   const studio = useStudioState();
   const {
     topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
-    isRandomizing, isGenerating, isRendering, isFactChecking, isFixingNarration,
-    result, videoUrl, fallbackReason, factCheck
+    isRandomizing, isTrending, isGenerating, isRendering, isFactChecking, isFixingNarration,
+    result, videoUrl, fallbackReason, factCheck, continuationContext
   } = studio;
 
   const problemClaims = factCheck ? getProblemClaims() : [];
@@ -77,13 +79,30 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
         </p>
       </div>
 
+      {continuationContext && (
+        <div className="note" style={{ marginBottom: 16, display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 12 }}>
+          <span>
+            Menyiapkan <strong>Part {continuationContext.partNumber}</strong> lanjutan dari "{continuationContext.previousTitle}" —
+            naskah yang dibuat akan melanjutkan cerita/pembahasan itu.
+          </span>
+          <button type="button" className="icon-btn" onClick={clearContinuation} title="Batalkan, buat topik baru saja">
+            <X size={14} />
+          </button>
+        </div>
+      )}
+
       <div className="card">
         <div className="field">
           <div className="label-row">
             <label className="label" htmlFor="topic">Topik video</label>
-            <button type="button" className="btn link" onClick={randomizeTopic} disabled={isRandomizing}>
-              {isRandomizing ? 'Mencari ide…' : (<><Dices size={13} style={{ verticalAlign: -2, marginRight: 5 }} />Ide acak</>)}
-            </button>
+            <div className="btn-row" style={{ gap: 4 }}>
+              <button type="button" className="btn link" onClick={trendingTopic} disabled={isTrending}>
+                {isTrending ? 'Mencari tren…' : (<><TrendingUp size={13} style={{ verticalAlign: -2, marginRight: 5 }} />Ide trending</>)}
+              </button>
+              <button type="button" className="btn link" onClick={randomizeTopic} disabled={isRandomizing}>
+                {isRandomizing ? 'Mencari ide…' : (<><Dices size={13} style={{ verticalAlign: -2, marginRight: 5 }} />Ide acak</>)}
+              </button>
+            </div>
           </div>
           <textarea
             id="topic"

@@ -655,6 +655,12 @@ code {
   }
 }
 
+/* Dipakai di ikon (mis. RefreshCw) yang perlu berputar selagi aksinya berjalan, tanpa
+   memakai markup .spinner penuh yang menggambar lingkaran sendiri. */
+.spin {
+  animation: spin 0.9s linear infinite;
+}
+
 /* ============================== PROGRESS ============================== */
 
 .progress-wrap {

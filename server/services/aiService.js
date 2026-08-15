@@ -1,6 +1,17 @@
 import axios from 'axios';
 import dbService from './dbService.js';
 import searchService from './searchService.js';
+import trendService from './trendService.js';
+
+// Kata kunci tragedi/bencana/kekerasan sungguhan — dibuang dari kandidat trending SEBELUM
+// dipilih, bukan diserahkan ke penilaian AI semata. Gaya konten aplikasi ini serba hype/viral
+// ("FAKTA GILA!", ajakan follow ceria), sama sekali tidak pantas dipakai buat kejadian nyata
+// yang ada korban jiwa/lukanya — bukan cuma etis, tapi juga literally salah nada.
+// WAJIB dua bahasa: hasil pencarian Tavily buat topik Indonesia sering didominasi sumber
+// berita BAHASA INGGRIS (CNN, Reuters, AP, dst) — versi Indonesia-only sebelumnya kebobolan,
+// headline "earthquake... killing at least 20" lolos karena "earthquake"/"killing" tidak
+// ada di daftar kata kuncinya (cuma "tsunami" yang kebetulan ketangkap).
+const SENSITIVE_TREND_KEYWORDS = /gempa|tsunami|korban tewas|korban jiwa|meninggal dunia|\btewas\b|bencana|kecelakaan|kebakaran|perang|serangan|pembunuhan|bunuh diri|pemerkosaan|\bkdrt\b|pelecehan|terorisme|\bbom\b|ledakan|wabah|pandemi|kerusuhan|penculikan|earthquake|tsunami|\bkill(ed|ing|s)?\b|\bdead\b|death[s]?|died|casualt(y|ies)|victim[s]?|disaster|accident|crash|collapse[d]?|\bfire\b|wildfire|\bwar\b|attack(ed|s)?|murder(ed)?|homicide|suicide|\brape[d]?\b|assault(ed)?|domestic violence|terroris[mt]|\bbomb(ing|ed)?\b|explosion|outbreak|pandemic|epidemic|\briot[s]?\b|kidnap(ped|ping)?|abduct(ed|ion)?|injured|wounded|toll rises|missing (people|persons)/i;
 
 class AIService {
   constructor() {
@@ -58,7 +69,7 @@ class AIService {
    * Menghasilkan paket konten video Shorts lengkap:
    * Judul, Deskripsi, Tag, Naskah Narasi, dan Scene Breakdown untuk video vertikal 9:16
    */
-  async generateShortContent(topic = 'Fakta Unik AI & Teknologi Masa Depan', niche = 'Teknologi & AI', tone = 'Energik & Viral', targetDurationSeconds = null) {
+  async generateShortContent(topic = 'Fakta Unik AI & Teknologi Masa Depan', niche = 'Teknologi & AI', tone = 'Energik & Viral', targetDurationSeconds = null, continuationContext = null) {
     // Durasi & jumlah scene menyesuaikan jenis konten: cerita/dongeng/misteri butuh napas
     // panjang buat membangun plot (3-5 menit), sementara fakta/tips singkat cukup padat di
     // 60-90 detik (minimal 60 detik supaya informasinya nggak kepotong kependekan).
@@ -105,9 +116,23 @@ class AIService {
       : '';
     const generatedBySuffix = searchContext ? ' + fakta web (Tavily)' : '';
 
+    // Konten bersambung (Part 2, 3, dst) — dipicu manual dari tombol "Buat Part lanjutan" di
+    // Riwayat, khusus niche cerita/naratif yang memang ditutup ajakan follow buat lanjutannya
+    // (lihat aturan WAJIB di bawah). Blok ini memaksa AI melanjutkan cerita/pembahasan yang
+    // SAMA, bukan menulis topik baru yang kebetulan mirip judul — dan memaksa title diakhiri
+    // "(Part N)" supaya kelihatan jelas di Riwayat/Studio ini bagian dari seri yang mana.
+    const continuationBlock = continuationContext
+      ? `\nKONTEKS LANJUTAN — INI PALING PENTING, BACA DULU SEBELUM MENULIS APAPUN:
+Ini adalah Part ${continuationContext.partNumber} dari sebuah seri. Part ${continuationContext.partNumber - 1} sebelumnya (judul: "${continuationContext.previousTitle}") sudah tayang dengan naskah:
+"""
+${(continuationContext.previousNarration || '').slice(0, 1800)}
+"""
+Video itu ditutup ajakan follow buat lanjutannya — penonton yang nonton video ini SUDAH nonton Part sebelumnya. Tugasmu: LANJUTKAN cerita/pembahasan itu secara koheren, bukan menulis topik baru yang cuma kebetulan bertema sama. Boleh recap SANGAT singkat (maksimal satu kalimat) di scene pertama kalau perlu, tapi jangan mengulang isi Part sebelumnya secara panjang. "title" WAJIB diakhiri dengan " (Part ${continuationContext.partNumber})".\n`
+      : '';
+
     const prompt = `Kamu adalah pakar kreator video Shorts/Reels vertikal viral dengan jutaan penonton.
 Tugasmu adalah membuat konten video vertikal (9:16) berdurasi ${targetDurationLabel} dengan topik: "${topic}" dalam kategori niche: "${niche}" dengan gaya bicara "${tone}".
-${searchContextBlock}Buat jumlah scene sesuai kebutuhan supaya menutupi SELURUH durasi target di atas — jangan berhenti di 4 scene kalau durasinya panjang. Untuk konten ini, buat ${targetSceneGuidance}. Tiap objek scene memakai struktur JSON PERSIS seperti contoh di bawah (sceneNumber, timeRange, visualDescription, captionText, narrationSegment), tinggal ditambah sejumlah scene yang dibutuhkan.
+${continuationBlock}${searchContextBlock}Buat jumlah scene sesuai kebutuhan supaya menutupi SELURUH durasi target di atas — jangan berhenti di 4 scene kalau durasinya panjang. Untuk konten ini, buat ${targetSceneGuidance}. Tiap objek scene memakai struktur JSON PERSIS seperti contoh di bawah (sceneNumber, timeRange, visualDescription, captionText, narrationSegment), tinggal ditambah sejumlah scene yang dibutuhkan.
 
 GAYA BAHASA NARASI — PALING PENTING, ini yang bakal dibacakan suara AI, jadi harus terdengar seperti orang ngobrol, bukan teks yang dibaca robot:
 - Pakai bahasa lisan sehari-hari yang santai. Sapa penonton dengan "kamu".
@@ -302,7 +327,7 @@ CATATAN: 4 scene di atas cuma contoh FORMAT. Untuk topik ini kamu WAJIB membuat 
     // Smart Generator untuk menghasilkan konten viral relevan sesuai topik/niche,
     // dengan alasan kegagalan sungguhan disertakan (bukan pesan generik) supaya kelihatan
     // di UI apa yang benar-benar terjadi (timeout, connection refused, dll).
-    return this.generateSmartFallback(topic, niche, tone, lastErrorMessage);
+    return this.generateSmartFallback(topic, niche, tone, lastErrorMessage, continuationContext);
   }
 
   /**
@@ -725,6 +750,71 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     }
   }
 
+  /**
+   * Usulkan topik yang berangkat dari tren sungguhan (berita yang lagi ramai dibicarakan di
+   * Indonesia hari ini, lewat Tavily — lihat trendService.js), bukan tebakan AI dari
+   * pengetahuan statisnya seperti suggestRandomTopic. Trend yang jelas soal tragedi/bencana/
+   * kekerasan dibuang duluan (SENSITIVE_TREND_KEYWORDS) — gaya video ini serba hype/viral,
+   * tidak pantas dipakai buat kejadian nyata yang ada korban. Trending kosong/semua sensitif/
+   * Tavily nonaktif → fallback ke suggestRandomTopic biasa, sama seperti kalau AI tidak terjangkau.
+   */
+  async suggestTrendingTopic() {
+    const trends = await trendService.getTrendingTopics();
+    const safeTrends = trends.filter(
+      (t) => !SENSITIVE_TREND_KEYWORDS.test(t.title) && !SENSITIVE_TREND_KEYWORDS.test(t.snippet || '')
+    );
+
+    if (safeTrends.length === 0) {
+      console.warn('[AIService] Tidak ada trending topic yang aman buat konten hiburan hari ini, pakai suggestRandomTopic sebagai gantinya.');
+      return this.suggestRandomTopic();
+    }
+
+    const pick = safeTrends[Math.floor(Math.random() * Math.min(safeTrends.length, 6))];
+    const niches = [
+      'Teknologi & AI', 'Misteri & Horor', 'Cerita Fiksi Pendek', 'Psikologi & Fakta Sosial',
+      'Sejarah Tersembunyi', 'Keuangan & Investasi', 'Kesehatan & Sains', 'Hewan & Alam Liar',
+      'Konspirasi & Urban Legend', 'Hubungan & Percintaan', 'Motivasi & Karir', 'Game & Pop Culture'
+    ];
+    const tones = ['Energik & Viral', 'Misterius & Penasaran', 'Santai & Relatable', 'Dramatis & Menegangkan'];
+    const tone = tones[Math.floor(Math.random() * tones.length)];
+
+    const prompt = `Ada topik yang lagi ramai dibicarakan di Indonesia hari ini: "${pick.title}"${pick.snippet ? `\nKonteks: ${pick.snippet}` : ''}
+
+Susun SATU ide topik video Shorts yang berangkat dari tren ini, dikemas jadi angle menarik buat video pendek (fakta, analisis singkat, atau sisi menarik di baliknya) — BUKAN sekadar menyalin judul berita mentah-mentah.
+Kalau topiknya sensitif/politis/kontroversial/melibatkan tragedi-korban, JANGAN dipaksakan — ganti ke sudut pandang netral & aman sepenuhnya (mis. fakta umum seputar temanya), atau kalau memang tidak ada sudut aman sama sekali, pilih genre "Fakta Unik" umum yang tidak berhubungan dengan tren itu.
+
+KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
+{"topic": "judul singkat ide topik, maks 80 karakter", "niche": "kategori niche paling cocok dari daftar ini: ${niches.join(', ')}"}`;
+
+    const headers = { 'Content-Type': 'application/json' };
+    if (this.apiKey && this.apiKey.length > 0) headers['Authorization'] = `Bearer ${this.apiKey}`;
+
+    try {
+      const response = await axios.post(
+        `${this.apiEndpoint}/chat/completions`,
+        {
+          model: this.model,
+          messages: [
+            { role: 'system', content: 'You are a viral short-video trend spotter who avoids sensationalizing real tragedies. Always return valid JSON only.' },
+            { role: 'user', content: prompt }
+          ],
+          temperature: 0.8,
+          max_tokens: 250,
+          stream: false,
+          reasoning: { exclude: true, enabled: false }
+        },
+        { headers, timeout: 30000 }
+      );
+      const rawContent = response.data?.choices?.[0]?.message?.content || '';
+      const parsed = this.parseAiJson(rawContent);
+      const niche = niches.includes(parsed.niche) ? parsed.niche : niches[0];
+      return { topic: parsed.topic, niche, tone, sourceTrend: pick.title };
+    } catch (error) {
+      console.warn('[AIService] Gagal susun angle dari trending topic, pakai suggestRandomTopic sebagai gantinya:', this.describeAxiosError(error));
+      return this.suggestRandomTopic();
+    }
+  }
+
   getRandomFallbackTopic(preferredCategory, tone) {
     const bank = {
       'Teknologi & AI': ['Fakta AI yang Bakal Ganti Pekerjaan Manusia', 'Gadget Rahasia yang Baru Dirilis Diam-Diam', 'AI vs Manusia: Siapa Menang di 2026'],
@@ -768,7 +858,7 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
    * dengan struktur & gaya bahasa yang berubah-ubah sesuai niche, dan sedikit variasi acak supaya
    * tidak selalu terasa sama persis di tiap generate.
    */
-  generateSmartFallback(topic, niche, tone, reason = '') {
+  generateSmartFallback(topic, niche, tone, reason = '', continuationContext = null) {
     const mode = this.detectStoryMode(niche);
     const t = topic.trim();
 
@@ -939,8 +1029,9 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
     }));
 
     const cleanNicheTag = (niche || 'shorts').replace(/[^a-zA-Z0-9]+/g, '').toLowerCase();
+    const partSuffix = continuationContext ? ` (Part ${continuationContext.partNumber})` : '';
     return {
-      title: `${t.slice(0, 45)} 👀 #shorts`,
+      title: `${t.slice(0, 45)}${partSuffix} 👀 #shorts`,
       description: `${hook}\n\n${build}\n\n#shorts #viral #trending #${cleanNicheTag}`,
       tags: `shorts, viral, trending, ${(niche || '').toLowerCase()}, ${t.toLowerCase()}, cerita, fakta, hiburan, reels, fyp`,
       narration: narrationSegments.join(' '),

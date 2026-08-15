@@ -74,8 +74,8 @@ app.get('/api/status', (req, res) => {
 // Generate Naskah, Judul, Deskripsi, Tag via AI Hermes
 app.post('/api/ai/generate', async (req, res) => {
   try {
-    const { topic, niche, tone, targetDurationSeconds } = req.body;
-    const aiResult = await aiService.generateShortContent(topic, niche, tone, targetDurationSeconds);
+    const { topic, niche, tone, targetDurationSeconds, continuationContext } = req.body;
+    const aiResult = await aiService.generateShortContent(topic, niche, tone, targetDurationSeconds, continuationContext);
     res.json({ success: true, data: aiResult });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -86,6 +86,16 @@ app.post('/api/ai/generate', async (req, res) => {
 app.post('/api/ai/random-topic', async (req, res) => {
   try {
     const suggestion = await aiService.suggestRandomTopic();
+    res.json({ success: true, data: suggestion });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+// Usulkan Topik dari Tren Sungguhan (Tavily news search, bukan tebakan AI) — lihat trendService.js
+app.post('/api/ai/trending-topic', async (req, res) => {
+  try {
+    const suggestion = await aiService.suggestTrendingTopic();
     res.json({ success: true, data: suggestion });
   } catch (error) {
     res.status(500).json({ success: false, message: error.message });
@@ -155,7 +165,7 @@ app.get('/api/shorts', (req, res) => {
 // Buat Baru dari Awal hingga Upload Lengkap (One-Click Generate & Upload)
 app.post('/api/shorts/create-and-upload', async (req, res) => {
   try {
-    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds, localFootage } = req.body;
+    const { topic, niche, tone, themeId, privacyStatus, title, description, tags, narration, scenes, durationSeconds, localFootage, seriesPartNumber, seriesRootId } = req.body;
 
     // Jika title sudah tersedia (dari frontend), gunakan langsung; jika tidak, generate.
     // durationSeconds harus ikut disertakan di sini — sebelumnya field ini tidak dibawa,
@@ -214,7 +224,12 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
       renderedVideo,
       uploadResult,
       createdAt: new Date().toISOString(),
-      type: 'MANUAL_STUDIO'
+      type: 'MANUAL_STUDIO',
+      // Dipakai fitur "Buat Part lanjutan" di Riwayat — seriesRootId menghubungkan semua part
+      // dari seri yang sama, seriesPartNumber urutannya, supaya tombol lanjutan tahu part
+      // berikutnya nomor berapa tanpa harus menelusuri title.
+      seriesPartNumber: Number.isFinite(seriesPartNumber) ? seriesPartNumber : 1,
+      seriesRootId: seriesRootId || null
     };
 
     shortsHistory.unshift(newRecord);
@@ -243,6 +258,20 @@ app.delete('/api/shorts/:id', (req, res) => {
   shortsHistory = shortsHistory.filter(s => s.id !== req.params.id);
   dbService.saveHistory(shortsHistory);
   res.json({ success: true, data: shortsHistory });
+});
+
+// Tarik data performa (views/impressions/rata-rata waktu tonton) video yang sudah diupload ke
+// Facebook — feedback loop supaya ada data soal topik/gaya mana yang benar-benar perform,
+// bukan cuma generate→upload lalu tidak pernah tahu hasilnya.
+app.post('/api/shorts/:id/insights', async (req, res) => {
+  const target = shortsHistory.find((s) => s.id === req.params.id);
+  if (!target) return res.status(404).json({ success: false, message: 'Short tidak ditemukan di riwayat.' });
+
+  const videoId = target.uploadResult?.videoId;
+  const insights = await facebookService.getVideoInsights(videoId);
+  target.insights = insights;
+  dbService.saveHistory(shortsHistory);
+  res.json({ success: true, data: insights });
 });
 
 // Pengaturan Persisten (Database)
@@ -455,6 +484,23 @@ app.post('/api/scheduler/topic-queue', (req, res) => {
 app.delete('/api/scheduler/topic-queue/:id', (req, res) => {
   schedulerService.deleteTopic(req.params.id);
   res.json({ success: true, data: schedulerService.getSchedulerConfig() });
+});
+
+// Kalender konten: generate naskah lebih awal buat satu topik di antrean, supaya saat
+// jadwalnya tiba auto-pilot tinggal render (tidak generate dadakan yang bisa lambat/timeout).
+app.post('/api/scheduler/topic-queue/:id/pregenerate', async (req, res) => {
+  try {
+    await schedulerService.pregenerateTopic(req.params.id);
+    res.json({ success: true, data: schedulerService.getSchedulerConfig() });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// Sama seperti di atas tapi untuk semua topik PENDING sekaligus, dijalankan berurutan.
+app.post('/api/scheduler/topic-queue/pregenerate-all', async (req, res) => {
+  const result = await schedulerService.pregenerateAll();
+  res.json({ success: true, data: { ...result, config: schedulerService.getSchedulerConfig() } });
 });
 
 // Jalankan Eksekusi Jadwal Otomatis Sekarang (Untuk Testing / Trigger Manual)

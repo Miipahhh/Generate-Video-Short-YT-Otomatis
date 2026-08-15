@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, Trash2, CheckCircle2, XCircle, ShieldAlert } from 'lucide-react';
+import { Plus, Trash2, CheckCircle2, XCircle, ShieldAlert, Wand2, CalendarClock } from 'lucide-react';
 import axios from 'axios';
 import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
@@ -35,6 +35,8 @@ export default function SchedulerView({ onShortCreated }) {
   const [newNiche, setNewNiche] = useState(NICHES[0]);
   const [isLoading, setIsLoading] = useState(true);
   const [isExecuting, setIsExecuting] = useState(false);
+  const [pregeneratingId, setPregeneratingId] = useState(null);
+  const [isPregeneratingAll, setIsPregeneratingAll] = useState(false);
 
   // Satu eksekusi = generate naskah + render + upload, jadi lajunya dipatok lebih lambat
   // dari sekadar generate naskah. Progres asli dipakai kalau rendernya lewat MoneyPrinterTurbo.
@@ -97,6 +99,43 @@ export default function SchedulerView({ onShortCreated }) {
       }
     } catch (error) {
       toast.error('Gagal menghapus topik.');
+    }
+  };
+
+  const handlePregenerate = async (id) => {
+    setPregeneratingId(id);
+    try {
+      const res = await axios.post(`/api/scheduler/topic-queue/${id}/pregenerate`);
+      if (res.data?.success) {
+        setConfig(res.data.data);
+        toast.success('Naskah siap — auto-pilot tinggal render saat jadwalnya tiba.', { duration: 3000 });
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal generate naskah topik ini.');
+    } finally {
+      setPregeneratingId(null);
+    }
+  };
+
+  const handlePregenerateAll = async () => {
+    setIsPregeneratingAll(true);
+    try {
+      const res = await axios.post('/api/scheduler/topic-queue/pregenerate-all');
+      if (res.data?.success) {
+        const { done, failed, config: newConfig } = res.data.data;
+        setConfig(newConfig);
+        if (failed.length > 0) {
+          toast.error(`${done} naskah siap, ${failed.length} gagal (${failed.map((f) => f.topic).join(', ')}).`, { duration: 8000 });
+        } else if (done === 0) {
+          toast('Tidak ada topik yang perlu digenerate (semua sudah siap atau antrean kosong).', { duration: 3000 });
+        } else {
+          toast.success(`${done} naskah siap — auto-pilot tinggal render saat jadwalnya tiba.`, { duration: 4000 });
+        }
+      }
+    } catch (error) {
+      toast.error('Gagal generate naskah batch.');
+    } finally {
+      setIsPregeneratingAll(false);
     }
   };
 
@@ -178,9 +217,21 @@ export default function SchedulerView({ onShortCreated }) {
       </div>
 
       <div className="card">
-        <div className="card-head">
-          <h2 className="card-title">Antrean topik ({queue.length})</h2>
-          <p className="card-sub">Topik dijalankan berurutan dari atas.</p>
+        <div className="card-head head-row">
+          <div>
+            <h2 className="card-title">Antrean topik ({queue.length})</h2>
+            <p className="card-sub">
+              Topik dijalankan berurutan dari atas. "Generate semua naskah" menyiapkan naskah lebih awal
+              (kalender konten) supaya saat jadwalnya tiba, auto-pilot tinggal render — bukan generate dadakan.
+            </p>
+          </div>
+          {queue.some((t) => t.status === 'PENDING') && (
+            <button className="btn sm" onClick={handlePregenerateAll} disabled={isPregeneratingAll}>
+              {isPregeneratingAll
+                ? (<><span className="spinner" />Menyiapkan naskah…</>)
+                : (<><CalendarClock size={13} /> Generate semua naskah</>)}
+            </button>
+          )}
         </div>
 
         <form onSubmit={handleAddTopic} className="btn-row" style={{ marginBottom: 16 }}>
@@ -218,8 +269,20 @@ export default function SchedulerView({ onShortCreated }) {
                     {item.niche}
                     {item.status === 'COMPLETED' && ' • sudah dijalankan'}
                     {item.status === 'PROCESSING' && ' • sedang diproses'}
+                    {item.status === 'GENERATING' && ' • sedang menyiapkan naskah…'}
+                    {item.status === 'READY' && ' • naskah siap'}
                   </div>
                 </div>
+                {(item.status === 'PENDING' || !item.status) && (
+                  <button
+                    className="icon-btn"
+                    onClick={() => handlePregenerate(item.id)}
+                    disabled={pregeneratingId === item.id}
+                    title="Siapkan naskah lebih awal buat topik ini"
+                  >
+                    {pregeneratingId === item.id ? <span className="spinner" /> : <Wand2 size={15} />}
+                  </button>
+                )}
                 <button
                   className="icon-btn"
                   onClick={() => handleDelete(item.id, item.topic)}

@@ -86,6 +86,7 @@ let state = {
   isFootageBusy: false, // upload/hapus lagi jalan
 
   isRandomizing: false,
+  isTrending: false,
   isGenerating: false,
   isRendering: false,
   isFactChecking: false,
@@ -95,6 +96,12 @@ let state = {
   videoUrl: null,
   fallbackReason: null,
   factCheck: null,
+
+  // Konten bersambung (Part 2, 3, ...) — diisi lewat startContinuation() dari tombol "Buat Part
+  // lanjutan" di Riwayat. Kalau ada, generateScript() mengirim ini ke server supaya naskah yang
+  // dibuat benar-benar melanjutkan cerita/pembahasan sebelumnya (lihat continuationBlock di
+  // aiService.js), dan renderAndUpload() menempelkan nomor part + seriesRootId ke record baru.
+  continuationContext: null,
 
   initialized: false
 };
@@ -230,7 +237,10 @@ export function patchResult(patch) {
 
 export async function randomizeTopic() {
   if (state.isRandomizing) return;
-  setState({ isRandomizing: true });
+  // Topik acak = user mau ide baru yang lepas dari konteks apapun, jadi lanjutan yang lagi
+  // disiapkan (kalau ada) dibatalkan supaya tidak nyangkut jadi "Part N" dari topik yang
+  // sudah tidak relevan lagi.
+  setState({ isRandomizing: true, continuationContext: null });
   try {
     const res = await axios.post('/api/ai/random-topic');
     const s = res.data?.success ? res.data.data : null;
@@ -246,6 +256,56 @@ export async function randomizeTopic() {
   } finally {
     setState({ isRandomizing: false });
   }
+}
+
+/**
+ * Ambil topik yang lagi rame dicari orang Indonesia hari ini (Google Trends), lalu minta AI
+ * susun jadi angle video Shorts — beda dari randomizeTopic yang tebakan/bank lokal, ini
+ * berangkat dari data tren sungguhan supaya peluang viral lebih besar.
+ */
+export async function trendingTopic() {
+  if (state.isTrending) return;
+  setState({ isTrending: true, continuationContext: null });
+  try {
+    const res = await axios.post('/api/ai/trending-topic');
+    const s = res.data?.success ? res.data.data : null;
+    if (s?.topic) {
+      setState({ topic: s.topic, niche: s.niche || state.niche, tone: s.tone || state.tone });
+      toast(s.sourceTrend ? `Berangkat dari tren: "${s.sourceTrend}"` : 'Topik trending diambil.', {
+        title: 'Ide dari trending',
+        type: 'info',
+        duration: 4000
+      });
+    } else {
+      toast.error('Gagal mengambil topik trending, coba lagi.');
+    }
+  } catch (error) {
+    toast.error(error.response?.data?.message || 'Gagal mengambil topik trending.');
+  } finally {
+    setState({ isTrending: false });
+  }
+}
+
+/** Siapkan Studio buat generate naskah lanjutan (Part N) dari sebuah video di Riwayat. */
+export function startContinuation(previousRecord) {
+  setState({
+    topic: previousRecord.topic || previousRecord.title,
+    niche: previousRecord.niche || state.niche,
+    result: null,
+    videoUrl: null,
+    fallbackReason: null,
+    factCheck: null,
+    continuationContext: {
+      partNumber: (previousRecord.seriesPartNumber || 1) + 1,
+      previousTitle: previousRecord.title,
+      previousNarration: previousRecord.narration,
+      seriesRootId: previousRecord.seriesRootId || previousRecord.id
+    }
+  });
+}
+
+export function clearContinuation() {
+  setState({ continuationContext: null });
 }
 
 // Hanya menghasilkan naskah & metadata. Render dan upload adalah langkah terpisah,
@@ -266,7 +326,14 @@ export async function generateScript() {
       topic: state.topic,
       niche: state.niche,
       tone: state.tone,
-      targetDurationSeconds
+      targetDurationSeconds,
+      continuationContext: state.continuationContext
+        ? {
+            partNumber: state.continuationContext.partNumber,
+            previousTitle: state.continuationContext.previousTitle,
+            previousNarration: state.continuationContext.previousNarration
+          }
+        : undefined
     });
     if (res.data?.success) {
       setState({ result: res.data.data });
@@ -301,14 +368,19 @@ export async function renderAndUpload(onShortCreated) {
       durationSeconds: state.result.durationSeconds,
       themeId: state.themeId,
       privacyStatus: state.privacyStatus,
-      localFootage: useFootage ? state.selectedFootage : undefined
+      localFootage: useFootage ? state.selectedFootage : undefined,
+      seriesPartNumber: state.continuationContext?.partNumber || 1,
+      seriesRootId: state.continuationContext?.seriesRootId || undefined
     });
 
     if (res.data?.success) {
       const data = res.data.data;
       setState({
         videoUrl: data.renderedVideo?.videoUrl || data.uploadResult?.localVideoUrl || null,
-        fallbackReason: data.renderedVideo?.aiVideoFallbackReason || null
+        fallbackReason: data.renderedVideo?.aiVideoFallbackReason || null,
+        // Part ini sudah selesai dibuat — lanjutan berikutnya (kalau mau) diminta lewat tombol
+        // "Buat Part lanjutan" lagi dari item baru ini di Riwayat, bukan otomatis nge-chain.
+        continuationContext: null
       });
       if (onShortCreated) onShortCreated(data);
     }

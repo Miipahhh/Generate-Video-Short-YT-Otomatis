@@ -108,6 +108,53 @@ class SchedulerService {
     return this.topicQueue;
   }
 
+  /**
+   * Generate naskah lebih awal buat satu topik di antrean (kalender konten) — supaya saat
+   * jadwalnya tiba, runNextScheduledJob() tinggal pakai naskah yang sudah siap, bukan generate
+   * dadakan (yang bisa lambat/timeout kalau 9Router lagi sibuk tepat jam eksekusi). Naskah
+   * disimpan di item.aiContent, statusnya berubah PENDING → READY (tetap "belum dieksekusi",
+   * cuma sekarang sudah ada naskahnya).
+   */
+  async pregenerateTopic(topicId) {
+    const item = this.topicQueue.find((t) => t.id === topicId);
+    if (!item) throw new Error('Topik tidak ditemukan di antrean.');
+    if (item.status === 'PROCESSING') throw new Error('Topik ini sedang diproses, tidak bisa digenerate ulang sekarang.');
+
+    item.status = 'GENERATING';
+    this.persist();
+    try {
+      const aiContent = await aiService.generateShortContent(item.topic, item.niche);
+      item.aiContent = aiContent;
+      item.status = 'READY';
+      this.persist();
+      return item;
+    } catch (error) {
+      item.status = 'PENDING';
+      this.persist();
+      throw error;
+    }
+  }
+
+  /**
+   * Pregenerate semua topik PENDING sekaligus (kalender konten) — dijalankan BERURUTAN, bukan
+   * paralel, supaya tidak membanjiri 9Router lokal dengan banyak request generate bersamaan
+   * (yang justru bikin semuanya lebih lambat/gampang timeout, lihat catatan timeout di
+   * aiService.js). Satu topik gagal tidak menghentikan yang lain — dikumpulkan di `failed`.
+   */
+  async pregenerateAll() {
+    const targets = this.topicQueue.filter((t) => t.status === 'PENDING');
+    const results = { done: 0, failed: [] };
+    for (const item of targets) {
+      try {
+        await this.pregenerateTopic(item.id);
+        results.done += 1;
+      } catch (error) {
+        results.failed.push({ id: item.id, topic: item.topic, message: error.message });
+      }
+    }
+    return results;
+  }
+
   calculateNextRunTime() {
     const now = new Date();
     const days = [1, 3, 5]; // Senin, Rabu, Jumat
@@ -144,7 +191,10 @@ class SchedulerService {
     }
     this.isRunning = true;
 
-    const queued = this.topicQueue.find((t) => t.status === 'PENDING');
+    // READY = sudah dipregenerate lewat kalender konten (pregenerateTopic/pregenerateAll),
+    // diprioritaskan lebih dulu supaya kerja pregenerate-nya kepakai. PENDING = belum digenerate
+    // sama sekali, masih akan generate dadakan di bawah seperti perilaku lama.
+    const queued = this.topicQueue.find((t) => t.status === 'READY') || this.topicQueue.find((t) => t.status === 'PENDING');
     const nextTopic = queued || (await this.getFreshRandomTopic());
 
     if (queued) {
@@ -153,7 +203,10 @@ class SchedulerService {
     }
 
     try {
-      const aiContent = await aiService.generateShortContent(nextTopic.topic, nextTopic.niche);
+      // Naskah yang sudah dipregenerate dipakai apa adanya (tidak generate ulang) — cuma cek
+      // keamanan konten yang tetap dijalankan fresh di bawah, karena itu murah & krusial untuk
+      // dijalankan sedekat mungkin dengan waktu upload sungguhan.
+      const aiContent = queued?.aiContent || (await aiService.generateShortContent(nextTopic.topic, nextTopic.niche));
 
       // Auto-pilot upload langsung ke channel/halaman ASLI tanpa ada manusia yang review dulu
       // — sekali AI generate sesuatu yang menyenggol community guideline, langsung terpublish
@@ -251,9 +304,12 @@ class SchedulerService {
       if (this.onShortCreated) this.onShortCreated(record);
       return record;
     } catch (error) {
-      // Kembalikan topik ke antrean supaya bisa dicoba lagi di jadwal berikutnya.
+      // Kembalikan topik ke antrean supaya bisa dicoba lagi di jadwal berikutnya. Kalau
+      // naskahnya sudah sempat dipregenerate (aiContent ada), statusnya balik ke READY bukan
+      // PENDING — percobaan berikutnya masih pakai naskah yang sama, tidak generate ulang dari
+      // nol (gagalnya kemungkinan besar di render/upload, bukan di naskahnya).
       if (queued) {
-        queued.status = 'PENDING';
+        queued.status = queued.aiContent ? 'READY' : 'PENDING';
         this.persist();
       }
       this.logExecution({

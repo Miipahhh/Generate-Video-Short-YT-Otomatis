@@ -1,17 +1,28 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, Play, Download, Search, ExternalLink } from 'lucide-react';
+import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw } from 'lucide-react';
 import VideoPreviewModal from './ui/VideoPreviewModal.jsx';
+import ShortDetailModal from './ui/ShortDetailModal.jsx';
 import axios from 'axios';
 import { toast } from '../lib/toast.js';
 import { confirmAction } from '../lib/confirm.js';
+import { startContinuation } from '../lib/studioStore.js';
 
 const videoUrlOf = (item) => item.renderedVideo?.videoUrl || item.uploadResult?.localVideoUrl || null;
 
-export default function HistoryView() {
+// Niche cerita/naratif — satu-satunya jenis konten yang masuk akal dilanjutkan sebagai
+// "Part 2", karena eksplisit ditutup ajakan follow buat lanjutannya (lihat aturan naskah
+// di aiService.js). Fakta/tips berdiri sendiri per video, tidak punya alur cerita untuk disambung.
+const isNarrativeNiche = (niche) => /fiksi|cerita|misteri|horor|konspirasi/i.test(niche || '');
+
+const formatNum = (n) => (Number.isFinite(n) ? n.toLocaleString('id-ID') : '—');
+
+export default function HistoryView({ onNavigate }) {
   const [shorts, setShorts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [selected, setSelected] = useState(null);
+  const [detailItem, setDetailItem] = useState(null);
   const [query, setQuery] = useState('');
+  const [refreshingId, setRefreshingId] = useState(null);
 
   useEffect(() => {
     const fetchShorts = async () => {
@@ -43,6 +54,28 @@ export default function HistoryView() {
     }
   };
 
+  const handleRefreshInsights = async (id) => {
+    setRefreshingId(id);
+    try {
+      const res = await axios.post(`/api/shorts/${id}/insights`);
+      if (res.data?.success) {
+        const insights = res.data.data;
+        setShorts((prev) => prev.map((item) => (item.id === id ? { ...item, insights } : item)));
+        if (!insights.available) toast.error(insights.message || 'Data performa belum tersedia.');
+      }
+    } catch (error) {
+      toast.error('Gagal mengambil data performa.');
+    } finally {
+      setRefreshingId(null);
+    }
+  };
+
+  const handleContinuation = (item) => {
+    startContinuation(item);
+    if (onNavigate) onNavigate('studio');
+    toast.success(`Lanjutan "${item.title}" siap direview di tab Studio.`, { duration: 4000 });
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return shorts;
@@ -60,6 +93,10 @@ export default function HistoryView() {
           videoUrl={videoUrlOf(selected)}
           onClose={() => setSelected(null)}
         />
+      )}
+
+      {detailItem && (
+        <ShortDetailModal item={detailItem} onClose={() => setDetailItem(null)} />
       )}
 
       <div className="page-head head-row">
@@ -135,6 +172,12 @@ export default function HistoryView() {
                         YouTube <ExternalLink size={11} style={{ verticalAlign: -1 }} />
                       </a>
                     )}
+                    {item.insights?.available && (
+                      <span title="Data performa dari Facebook Insights">
+                        <BarChart2 size={11} style={{ verticalAlign: -1 }} /> {formatNum(item.insights.views)} tontonan
+                        {Number.isFinite(item.insights.avgWatchTimeSeconds) && ` • rata-rata ${item.insights.avgWatchTimeSeconds}dtk`}
+                      </span>
+                    )}
                   </div>
                 </div>
 
@@ -148,6 +191,28 @@ export default function HistoryView() {
                         <Download size={13} />
                       </a>
                     </>
+                  )}
+                  <button className="icon-btn" onClick={() => setDetailItem(item)} title="Lihat detail (deskripsi, tag, caption siap tempel)">
+                    <FileText size={15} />
+                  </button>
+                  {facebookUrl && item.uploadResult?.videoId && (
+                    <button
+                      className="icon-btn"
+                      onClick={() => handleRefreshInsights(item.id)}
+                      disabled={refreshingId === item.id}
+                      title="Muat ulang data performa (views/reach) dari Facebook"
+                    >
+                      <RefreshCw size={15} className={refreshingId === item.id ? 'spin' : ''} />
+                    </button>
+                  )}
+                  {isNarrativeNiche(item.niche) && url && (
+                    <button
+                      className="icon-btn"
+                      onClick={() => handleContinuation(item)}
+                      title="Buat naskah lanjutan (Part berikutnya) dari video ini"
+                    >
+                      <Repeat size={15} />
+                    </button>
                   )}
                   <button
                     className="icon-btn"

@@ -150,6 +150,47 @@ class FacebookService {
   }
 
   /**
+   * Tarik data performa (views/impressions/rata-rata waktu tonton) video yang sudah diupload,
+   * lewat Graph API video_insights. Ini feedback loop yang sebelumnya tidak ada sama sekali —
+   * generate→upload jalan tanpa data balik soal topik/gaya mana yang benar-benar perform.
+   * Non-fatal by design: kegagalan (token kedaluwarsa, video baru diupload belum ada data, dll)
+   * dikembalikan sebagai { available: false, message } bukan throw, supaya UI bisa tampilkan
+   * alasannya apa adanya tanpa bikin request gagal total.
+   */
+  async getVideoInsights(videoId) {
+    if (!videoId) return { available: false, message: 'Video ID tidak ada (belum diupload ke Facebook).' };
+    if (!this.isConnected) return { available: false, message: 'Facebook Page belum terhubung.' };
+    try {
+      const res = await axios.get(`https://graph.facebook.com/${GRAPH_API_VERSION}/${videoId}/video_insights`, {
+        params: {
+          metric: 'total_video_views,total_video_impressions,total_video_avg_time_watched,total_video_view_total_time',
+          access_token: this.pageAccessToken
+        },
+        timeout: 15000
+      });
+      const metrics = {};
+      for (const m of res.data?.data || []) {
+        metrics[m.name] = m.values?.[0]?.value ?? null;
+      }
+      return {
+        available: true,
+        views: metrics.total_video_views ?? null,
+        impressions: metrics.total_video_impressions ?? null,
+        // Facebook melaporkan rata-rata waktu tonton dalam milidetik.
+        avgWatchTimeSeconds: Number.isFinite(metrics.total_video_avg_time_watched)
+          ? Math.round(metrics.total_video_avg_time_watched / 1000)
+          : null,
+        totalWatchTimeSeconds: Number.isFinite(metrics.total_video_view_total_time)
+          ? Math.round(metrics.total_video_view_total_time / 1000)
+          : null,
+        fetchedAt: new Date().toISOString()
+      };
+    } catch (error) {
+      return { available: false, message: this.describeUploadError(error.response?.data, error.message) };
+    }
+  }
+
+  /**
    * Terjemahkan error mentah Graph API jadi kalimat actionable — pesan asli Facebook (mis.
    * "Error validating access token") sering tidak cukup jelas soal apa yang harus dilakukan.
    */
