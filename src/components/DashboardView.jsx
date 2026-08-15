@@ -68,10 +68,20 @@ export default function DashboardView({
     axios.get('/api/settings').then((res) => {
       if (res.data?.success) setConfig(res.data.data);
     }).catch(() => {});
+  }, []);
 
-    axios.get('/api/ai/ping').then((res) => {
-      setAiAlive(Boolean(res.data?.data?.alive));
-    }).catch(() => setAiAlive(false));
+  // Cek ulang berkala (bukan cuma sekali pas dasbor pertama dimuat) — sebelumnya kalau
+  // dasbor dibuka pas 9Router/MoneyPrinterTurbo lagi restart, dot-nya nyangkut merah selamanya
+  // walau servisnya sudah nyala lagi, karena tidak pernah dicek ulang tanpa reload halaman.
+  useEffect(() => {
+    const pingAi = () => {
+      axios.get('/api/ai/ping').then((res) => {
+        setAiAlive(Boolean(res.data?.data?.alive));
+      }).catch(() => setAiAlive(false));
+    };
+    pingAi();
+    const interval = setInterval(pingAi, 15000);
+    return () => clearInterval(interval);
   }, []);
 
   // MoneyPrinterTurbo cuma relevan buat dicek kalau memang provider video aktifnya itu —
@@ -79,9 +89,14 @@ export default function DashboardView({
   // sedang berjalan) supaya tidak salah cek provider yang tidak dipakai.
   useEffect(() => {
     if (config?.videoConfig?.provider !== 'moneyprinter') return;
-    axios.get('/api/settings/moneyprinter/ping').then((res) => {
-      setMptAlive(Boolean(res.data?.data?.alive));
-    }).catch(() => setMptAlive(false));
+    const pingMpt = () => {
+      axios.get('/api/settings/moneyprinter/ping').then((res) => {
+        setMptAlive(Boolean(res.data?.data?.alive));
+      }).catch(() => setMptAlive(false));
+    };
+    pingMpt();
+    const interval = setInterval(pingMpt, 15000);
+    return () => clearInterval(interval);
   }, [config?.videoConfig?.provider]);
 
   const stats = [

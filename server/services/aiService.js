@@ -411,34 +411,35 @@ KEMBALIKAN OUTPUT JSON MURNI TANPA MARKDOWN, skema:
 
     // Model "combo" (mis. RequirementBusinessAnalysis) me-routing acak ke beberapa provider
     // underlying di 9Router, jadi satu percobaan gagal bukan berarti modelnya benar-benar
-    // tidak bisa dipakai — pola yang sama seperti generateShortContent di atas. Tanpa retry
-    // ini, cek fakta sesekali gagal total padahal generate naskah (pakai model yang sama)
-    // baru saja berhasil.
-    try {
-      const parsed = await callModel(this.model, 60000);
-      return {
-        claims: Array.isArray(parsed.claims) ? parsed.claims : [],
-        overallNote: parsed.overallNote || '',
-        checkedBy: `${this.model} via 9Router${checkedBySuffix}`,
-        usedWebSearch: Boolean(searchContext),
-        checkedAt: new Date().toISOString()
-      };
-    } catch (error) {
-      console.warn('Cek fakta gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+    // tidak bisa dipakai. Sebelumnya cuma 2 percobaan @60s (120s total) — jauh lebih tipis
+    // dari generateShortContent (bisa 800+ detik lintas beberapa model), padahal 9Router
+    // sama-sama sering lambat buat kedua jenis panggilan itu. Diperpanjang jadi 4 percobaan
+    // @90s (termasuk 2x di model utama, sama seperti pola generateShortContent) supaya cek
+    // fakta tidak gagal total cuma karena kurang sabar menunggu 9Router yang sama.
+    const attemptModels = [
+      this.model,
+      this.model,
+      this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes',
+      this.model === 'Free' ? 'RequirementBusinessAnalysis' : 'Free'
+    ];
+
+    let lastError;
+    for (let i = 0; i < attemptModels.length; i++) {
       try {
-        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
-        const parsed = await callModel(fallbackModel, 60000);
+        const parsed = await callModel(attemptModels[i], 90000);
         return {
           claims: Array.isArray(parsed.claims) ? parsed.claims : [],
           overallNote: parsed.overallNote || '',
-          checkedBy: `${fallbackModel} via 9Router (percobaan ke-2)${checkedBySuffix}`,
+          checkedBy: `${attemptModels[i]} via 9Router${i > 0 ? ` (percobaan ke-${i + 1})` : ''}${checkedBySuffix}`,
           usedWebSearch: Boolean(searchContext),
           checkedAt: new Date().toISOString()
         };
-      } catch (error2) {
-        throw new Error(`Gagal menjalankan cek fakta: ${this.describeAxiosError(error2)}`);
+      } catch (error) {
+        lastError = error;
+        console.warn(`Cek fakta gagal dengan model ${attemptModels[i]} (percobaan ${i + 1}/${attemptModels.length}):`, this.describeAxiosError(error));
       }
     }
+    throw new Error(`Gagal menjalankan cek fakta setelah ${attemptModels.length}x percobaan: ${this.describeAxiosError(lastError)}`);
   }
 
   /**
