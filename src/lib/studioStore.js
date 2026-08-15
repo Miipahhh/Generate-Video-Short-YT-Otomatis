@@ -63,7 +63,33 @@ function randomDurationFor(niche) {
 // dipakai App.jsx saat memanggil useProgress untuk render.
 export const RENDER_PACE = { template: 25, fal_ai: 70, moneyprinter: 240 };
 
-const randomPick = () => TOPIC_BANK[Math.floor(Math.random() * TOPIC_BANK.length)];
+// Topik dari riwayat (sudah pernah benar-benar digenerate) — dipakai supaya bank topik
+// cadangan tidak mengusulkan ulang topik yang sudah dipakai. TOPIC_BANK cuma 10 entri tetap,
+// tanpa ini bisa gampang kepilih ulang persis sama (pernah kejadian: "Misteri rumah kosong
+// yang tak pernah terpecahkan" muncul lagi padahal videonya sudah ada di Riwayat).
+let usedTopicsCache = new Set();
+
+async function refreshUsedTopics() {
+  try {
+    const res = await axios.get('/api/shorts');
+    if (res.data?.success) {
+      usedTopicsCache = new Set(
+        res.data.data.map((s) => (s.topic || '').trim().toLowerCase()).filter(Boolean)
+      );
+    }
+  } catch {
+    // Non-fatal — kalau gagal, cadangan tetap jalan tanpa dedup (perilaku lama).
+  }
+}
+
+/** Pilih dari TOPIC_BANK yang topiknya belum pernah dipakai di Riwayat. Kalau semua sudah
+ * pernah dipakai (bank-nya cuma 10 entri), pasrah pilih dari bank penuh — repeat sesekali
+ * lebih baik daripada macet karena tidak ada kandidat sama sekali. */
+function pickUnusedTopic() {
+  const unused = TOPIC_BANK.filter((t) => !usedTopicsCache.has(t.topic.trim().toLowerCase()));
+  const pool = unused.length > 0 ? unused : TOPIC_BANK;
+  return pool[Math.floor(Math.random() * pool.length)];
+}
 
 let listeners = new Set();
 let state = {
@@ -121,10 +147,13 @@ export function subscribeStudio(fn) {
 }
 
 /** Dipanggil sekali dari App.jsx saat aplikasi dimuat — topik awal & provider video aktif. */
-export function initStudio() {
+export async function initStudio() {
   if (state.initialized) return;
-  const pick = randomPick();
-  setState({ initialized: true, topic: pick.topic, niche: pick.niche, tone: pick.tone });
+  setState({ initialized: true });
+
+  await refreshUsedTopics();
+  const pick = pickUnusedTopic();
+  setState({ topic: pick.topic, niche: pick.niche, tone: pick.tone });
 
   axios
     .get('/api/settings')
@@ -244,14 +273,19 @@ export async function randomizeTopic() {
   try {
     const res = await axios.post('/api/ai/random-topic');
     const s = res.data?.success ? res.data.data : null;
-    const pick = randomPick();
-    setState({
-      topic: s?.topic || pick.topic,
-      niche: s?.niche || pick.niche,
-      tone: s?.tone || pick.tone
-    });
+    if (s?.topic) {
+      setState({ topic: s.topic, niche: s.niche, tone: s.tone });
+    } else {
+      // usedTopicsCache cuma di-refresh sekali saat app dimuat — refresh lagi di sini (bukan di
+      // jalur sukses di atas) supaya short yang baru dibuat di sesi ini ikut ke-exclude, tanpa
+      // menambah latensi ke jalur AI yang normalnya berhasil.
+      await refreshUsedTopics();
+      const pick = pickUnusedTopic();
+      setState({ topic: pick.topic, niche: pick.niche, tone: pick.tone });
+    }
   } catch (error) {
-    const pick = randomPick();
+    await refreshUsedTopics();
+    const pick = pickUnusedTopic();
     setState({ topic: pick.topic, niche: pick.niche, tone: pick.tone });
   } finally {
     setState({ isRandomizing: false });
