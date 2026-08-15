@@ -248,6 +248,33 @@ app.post('/api/shorts/create-and-upload', async (req, res) => {
   }
 });
 
+// Upload manual ke Facebook Page untuk short yang sudah dirender tapi belum diupload (atau
+// upload sebelumnya gagal) — dipakai tombol "Upload ke Facebook" di Riwayat, supaya tidak
+// perlu generate/render ulang dari nol cuma buat ngirim video yang videonya sudah ada.
+app.post('/api/shorts/:id/upload', async (req, res) => {
+  const target = shortsHistory.find((s) => s.id === req.params.id);
+  if (!target) return res.status(404).json({ success: false, message: 'Short tidak ditemukan di riwayat.' });
+  if (!target.renderedVideo?.videoFilename) {
+    return res.status(400).json({ success: false, message: 'Video belum dirender, tidak ada file untuk diupload.' });
+  }
+
+  const { privacyStatus } = req.body;
+  try {
+    const uploadResult = await facebookService.uploadShort({
+      title: target.title,
+      description: target.description,
+      tags: target.tags,
+      privacyStatus: privacyStatus || 'public',
+      videoData: target.renderedVideo
+    });
+    target.uploadResult = uploadResult;
+    dbService.saveHistory(shortsHistory);
+    res.json({ success: true, data: uploadResult });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
 // Hapus Short dari Riwayat — file MP4 di disk ikut dihapus (bukan cuma catatan riwayatnya),
 // sesuai yang dijanjikan dialog konfirmasi di UI ("File MP4-nya tidak bisa dikembalikan").
 // Tanpa ini, video lama menumpuk permanen di public/videos walau sudah "dihapus" dari riwayat.

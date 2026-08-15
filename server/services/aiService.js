@@ -670,7 +670,7 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
           stream: false,
           reasoning: { exclude: true, enabled: false }
         },
-        { headers, timeout: 30000 }
+        { headers, timeout: 60000 }
       );
       const rawContent = response.data?.choices?.[0]?.message?.content || '';
       const parsed = this.parseAiJson(rawContent);
@@ -682,22 +682,29 @@ KEMBALIKAN JSON MURNI array of strings saja, TANPA markdown, TANPA penjelasan, p
       return clean.length ? clean : null;
     };
 
-    // Model "combo" 9Router kadang menabrak provider yang lagi kosong di satu percobaan —
-    // pola retry yang sama seperti factCheckNarration/reviseNarrationForFactCheck di atas.
-    // Ini cuma "nice to have" (render tetap jalan tanpa ini, MPT auto-generate sendiri), jadi
-    // cukup 1x retry dengan model cadangan, bukan rantai fallback panjang seperti generate naskah.
-    try {
-      return await callModel(this.model);
-    } catch (error) {
-      console.warn('[AIService] Generate kata kunci video gagal dengan model', this.model, '— mencoba ulang:', this.describeAxiosError(error));
+    // Model "combo" 9Router kadang menabrak provider yang lagi kosong di satu percobaan.
+    // Sebelumnya cuma 1x retry @30s — kalau gagal, MPT diam-diam jatuh ke auto-generate
+    // bawaannya sendiri, yang sering meleset jauh dari topik (footage acak sama sekali tidak
+    // nyambung, mis. topik mitologi malah dapat video gym/hewan). Diperpanjang jadi 4 percobaan
+    // @60s lintas 3 model combo, pola sama seperti factCheckNarration — supaya lebih jarang
+    // "menyerah" ke auto-generate MPT yang kualitasnya jauh lebih rendah dari kata kunci kita.
+    const attemptModels = [
+      this.model,
+      this.model,
+      this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes',
+      this.model === 'Free' ? 'RequirementBusinessAnalysis' : 'Free'
+    ];
+
+    for (let i = 0; i < attemptModels.length; i++) {
       try {
-        const fallbackModel = this.model === 'hermes' ? 'RequirementBusinessAnalysis' : 'hermes';
-        return await callModel(fallbackModel);
-      } catch (error2) {
-        console.warn('[AIService] Generate kata kunci video generik gagal total, MoneyPrinterTurbo pakai auto-generate bawaan:', this.describeAxiosError(error2));
-        return null;
+        const terms = await callModel(attemptModels[i]);
+        if (terms) return terms;
+      } catch (error) {
+        console.warn(`[AIService] Generate kata kunci video gagal dengan model ${attemptModels[i]} (percobaan ${i + 1}/${attemptModels.length}):`, this.describeAxiosError(error));
       }
     }
+    console.warn('[AIService] Generate kata kunci video generik gagal total setelah beberapa percobaan, MoneyPrinterTurbo pakai auto-generate bawaan.');
+    return null;
   }
 
   /** Ekstrak pesan error yang berguna dari axios error (timeout, connection refused, body API, dll) */

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw } from 'lucide-react';
+import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw, Upload } from 'lucide-react';
 import VideoPreviewModal from './ui/VideoPreviewModal.jsx';
 import ShortDetailModal from './ui/ShortDetailModal.jsx';
 import axios from 'axios';
@@ -23,6 +23,7 @@ export default function HistoryView({ onNavigate }) {
   const [detailItem, setDetailItem] = useState(null);
   const [query, setQuery] = useState('');
   const [refreshingId, setRefreshingId] = useState(null);
+  const [uploadingId, setUploadingId] = useState(null);
 
   useEffect(() => {
     const fetchShorts = async () => {
@@ -67,6 +68,35 @@ export default function HistoryView({ onNavigate }) {
       toast.error('Gagal mengambil data performa.');
     } finally {
       setRefreshingId(null);
+    }
+  };
+
+  const handleUpload = async (item) => {
+    const ok = await confirmAction(
+      `Upload "${item.title}" ke Facebook Page sekarang? Video akan langsung tayang di Page-mu.`,
+      { title: 'Upload ke Facebook', danger: false }
+    );
+    if (!ok) return;
+    setUploadingId(item.id);
+    try {
+      const res = await axios.post(`/api/shorts/${item.id}/upload`, { privacyStatus: 'public' });
+      if (res.data?.success) {
+        const uploadResult = res.data.data;
+        setShorts((prev) => prev.map((s) => (s.id === item.id ? { ...s, uploadResult } : s)));
+        if (uploadResult.success === false) {
+          toast.error(uploadResult.error || 'Upload gagal.');
+        } else {
+          toast.success(`"${item.title}" berhasil diupload ke Facebook.`, {
+            url: uploadResult.facebookVideoUrl,
+            linkLabel: 'Buka di Facebook',
+            duration: 6000
+          });
+        }
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal upload ke Facebook.');
+    } finally {
+      setUploadingId(null);
     }
   };
 
@@ -195,6 +225,16 @@ export default function HistoryView({ onNavigate }) {
                   <button className="icon-btn" onClick={() => setDetailItem(item)} title="Lihat detail (deskripsi, tag, caption siap tempel)">
                     <FileText size={15} />
                   </button>
+                  {url && !facebookUrl && (
+                    <button
+                      className="icon-btn"
+                      onClick={() => handleUpload(item)}
+                      disabled={uploadingId === item.id}
+                      title="Upload video ini ke Facebook Page"
+                    >
+                      {uploadingId === item.id ? <span className="spinner" /> : <Upload size={15} />}
+                    </button>
+                  )}
                   {facebookUrl && item.uploadResult?.videoId && (
                     <button
                       className="icon-btn"
