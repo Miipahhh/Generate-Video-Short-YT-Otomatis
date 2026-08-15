@@ -26,6 +26,7 @@ import {
 import ProgressBar from './ui/ProgressBar.jsx';
 import FootagePicker from './ui/FootagePicker.jsx';
 import TypewriterText from './ui/TypewriterText.jsx';
+import GeneratingPlaceholder from './ui/GeneratingPlaceholder.jsx';
 
 const VERDICT_LABEL = {
   akurat: 'Akurat',
@@ -168,6 +169,7 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
             label={isGenerating ? 'Menyusun naskah dengan AI' : 'Naskah selesai'}
           />
         )}
+        {isGenerating && <GeneratingPlaceholder />}
         {isGenerating && genProgress.elapsed > 45 && (
           <p className="hint">Model AI kadang butuh beberapa menit. Proses masih berjalan.</p>
         )}
