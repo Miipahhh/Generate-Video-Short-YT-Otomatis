@@ -181,7 +181,17 @@ export default function App() {
       )}
 
       <main className="page">
-        {activeTab === 'dashboard' && <DashboardView systemStatus={systemStatus} onNavigate={setActiveTab} />}
+        {activeTab === 'dashboard' && (
+          <DashboardView
+            systemStatus={systemStatus}
+            onNavigate={setActiveTab}
+            isGenerating={studio.isGenerating}
+            isRendering={studio.isRendering}
+            videoProvider={studio.videoProvider}
+            genProgress={genProgress}
+            renderProgress={renderProgress}
+          />
+        )}
         {activeTab === 'studio' && (
           <ShortsStudioView
             onShortCreated={handleShortCreated}

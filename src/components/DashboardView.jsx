@@ -1,4 +1,5 @@
 import React from 'react';
+import ProgressBar from './ui/ProgressBar.jsx';
 
 function formatNextRun(iso) {
   if (!iso) return '—';
@@ -11,7 +12,16 @@ function formatNextRun(iso) {
   });
 }
 
-export default function DashboardView({ systemStatus, onNavigate }) {
+const PROVIDER_LABEL = {
+  template: 'Template FFmpeg',
+  fal_ai: 'AI Video (fal.ai)',
+  moneyprinter: 'MoneyPrinterTurbo'
+};
+
+export default function DashboardView({
+  systemStatus, onNavigate,
+  isGenerating, isRendering, videoProvider, genProgress, renderProgress
+}) {
   const scheduler = systemStatus?.schedulerConfig;
   const facebook = systemStatus?.facebookStatus;
   const queue = scheduler?.topicQueue?.filter((t) => t.status !== 'COMPLETED') || [];
@@ -65,6 +75,25 @@ export default function DashboardView({ systemStatus, onNavigate }) {
       {lastRun?.status === 'blocked' && (
         <div className="note warn" style={{ marginBottom: 16, cursor: 'pointer' }} onClick={() => onNavigate('scheduler')}>
           <strong>Auto-pilot menahan 1 video</strong> karena cek keamanan konten — perlu direview manual. Klik untuk lihat detail.
+        </div>
+      )}
+
+      {(isGenerating || isRendering) && (
+        <div className="card" style={{ marginBottom: 16, cursor: 'pointer' }} onClick={() => onNavigate('studio')}>
+          <div className="card-head head-row">
+            <div>
+              <h2 className="card-title">
+                {isGenerating ? 'Menyusun naskah…' : `Merender video… (${PROVIDER_LABEL[videoProvider] || videoProvider})`}
+              </h2>
+              <p className="card-sub">Klik untuk buka tab Studio.</p>
+            </div>
+          </div>
+          <ProgressBar
+            percent={isGenerating ? genProgress.percent : renderProgress.percent}
+            remaining={isGenerating ? genProgress.remaining : renderProgress.remaining}
+            isReal={isGenerating ? genProgress.isReal : renderProgress.isReal}
+            label={isGenerating ? 'Menyusun naskah dengan AI' : 'Progres render'}
+          />
         </div>
       )}
 
