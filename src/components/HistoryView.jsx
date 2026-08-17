@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw, Upload } from 'lucide-react';
+import { Trash2, Play, Download, Search, ExternalLink, BarChart2, Repeat, FileText, RefreshCw, Upload, Send } from 'lucide-react';
 import VideoPreviewModal from './ui/VideoPreviewModal.jsx';
 import ShortDetailModal from './ui/ShortDetailModal.jsx';
 import axios from 'axios';
@@ -24,6 +24,8 @@ export default function HistoryView({ onNavigate }) {
   const [query, setQuery] = useState('');
   const [refreshingId, setRefreshingId] = useState(null);
   const [uploadingId, setUploadingId] = useState(null);
+  const [publishingId, setPublishingId] = useState(null);
+  const [isBulkPublishing, setIsBulkPublishing] = useState(false);
 
   useEffect(() => {
     const fetchShorts = async () => {
@@ -100,11 +102,76 @@ export default function HistoryView({ onNavigate }) {
     }
   };
 
+  // Video draft (unpublished) di Facebook tidak muncul di tab "Draf" Meta Business Suite —
+  // ini jalan resmi buat publish-nya lewat Graph API, tanpa harus ke Graph API Explorer manual.
+  const handlePublish = async (item) => {
+    const ok = await confirmAction(
+      `Publish "${item.title}" ke Facebook sekarang? Video langsung tayang publik di Page-mu.`,
+      { title: 'Publish video', danger: false }
+    );
+    if (!ok) return;
+    setPublishingId(item.id);
+    try {
+      const res = await axios.post(`/api/shorts/${item.id}/publish`);
+      if (res.data?.success) {
+        setShorts((prev) => prev.map((s) => (
+          s.id === item.id ? { ...s, uploadResult: { ...s.uploadResult, privacyStatus: 'public' } } : s
+        )));
+        toast.success(`"${item.title}" berhasil dipublish ke Facebook.`, {
+          url: item.uploadResult?.facebookVideoUrl,
+          linkLabel: 'Buka di Facebook',
+          duration: 6000
+        });
+      } else {
+        toast.error(res.data?.message || 'Gagal publish video.');
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal publish video.');
+    } finally {
+      setPublishingId(null);
+    }
+  };
+
+  const handlePublishAllDrafts = async () => {
+    const draftCount = shorts.filter((s) => s.uploadResult?.privacyStatus === 'draft' && s.uploadResult?.videoId).length;
+    if (draftCount === 0) return;
+    const ok = await confirmAction(
+      `Publish ${draftCount} video draft sekaligus ke Facebook? Semuanya langsung tayang publik.`,
+      { title: 'Publish semua draft', danger: false }
+    );
+    if (!ok) return;
+    setIsBulkPublishing(true);
+    try {
+      const res = await axios.post('/api/shorts/publish-drafts');
+      const data = res.data?.data;
+      if (data) {
+        const publishedIds = new Set(data.results.filter((r) => r.success).map((r) => r.id));
+        setShorts((prev) => prev.map((s) => (
+          publishedIds.has(s.id) ? { ...s, uploadResult: { ...s.uploadResult, privacyStatus: 'public' } } : s
+        )));
+        if (data.published === data.total) {
+          toast.success(`${data.published} video berhasil dipublish.`, { duration: 5000 });
+        } else {
+          toast.error(`${data.published} dari ${data.total} video berhasil dipublish. Sisanya gagal — cek satu-satu.`, { duration: 6000 });
+        }
+      }
+    } catch (error) {
+      toast.error(error.response?.data?.message || 'Gagal publish video draft.');
+    } finally {
+      setIsBulkPublishing(false);
+    }
+  };
+
   const handleContinuation = (item) => {
     startContinuation(item);
     if (onNavigate) onNavigate('studio');
     toast.success(`Lanjutan "${item.title}" siap direview di tab Studio.`, { duration: 4000 });
   };
+
+  const draftCount = useMemo(
+    () => shorts.filter((s) => s.uploadResult?.privacyStatus === 'draft' && s.uploadResult?.videoId).length,
+    [shorts]
+  );
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -134,18 +201,27 @@ export default function HistoryView({ onNavigate }) {
           <h1 className="page-title">Riwayat</h1>
           <p className="page-sub">{shorts.length} video tersimpan.</p>
         </div>
-        {shorts.length > 0 && (
-          <div className="search">
-            <Search size={15} />
-            <input
-              type="text"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Cari judul atau deskripsi…"
-              className="input"
-            />
-          </div>
-        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          {draftCount > 0 && (
+            <button className="btn sm" onClick={handlePublishAllDrafts} disabled={isBulkPublishing}>
+              {isBulkPublishing
+                ? (<><span className="spinner" />Mempublish…</>)
+                : (<><Send size={13} /> Publish semua draft ({draftCount})</>)}
+            </button>
+          )}
+          {shorts.length > 0 && (
+            <div className="search">
+              <Search size={15} />
+              <input
+                type="text"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Cari judul atau deskripsi…"
+                className="input"
+              />
+            </div>
+          )}
+        </div>
       </div>
 
       <div className="card">
@@ -197,6 +273,11 @@ export default function HistoryView({ onNavigate }) {
                         Facebook <ExternalLink size={11} style={{ verticalAlign: -1 }} />
                       </a>
                     )}
+                    {item.uploadResult?.privacyStatus === 'draft' && (
+                      <span title="Sudah diupload tapi belum tayang publik — belum di-publish" style={{ color: 'var(--accent)' }}>
+                        draft (belum tayang)
+                      </span>
+                    )}
                     {!facebookUrl && youtubeUrl && (
                       <a href={youtubeUrl} target="_blank" rel="noopener noreferrer">
                         YouTube <ExternalLink size={11} style={{ verticalAlign: -1 }} />
@@ -233,6 +314,16 @@ export default function HistoryView({ onNavigate }) {
                       title="Upload video ini ke Facebook Page"
                     >
                       {uploadingId === item.id ? <span className="spinner" /> : <Upload size={15} />}
+                    </button>
+                  )}
+                  {item.uploadResult?.privacyStatus === 'draft' && item.uploadResult?.videoId && (
+                    <button
+                      className="icon-btn"
+                      onClick={() => handlePublish(item)}
+                      disabled={publishingId === item.id}
+                      title="Publish video ini — langsung tayang publik di Facebook"
+                    >
+                      {publishingId === item.id ? <span className="spinner" /> : <Send size={15} />}
                     </button>
                   )}
                   {facebookUrl && item.uploadResult?.videoId && (

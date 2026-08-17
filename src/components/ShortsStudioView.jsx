@@ -47,7 +47,7 @@ const VERDICT_CLASS = {
 // tab Studio, karena App.jsx me-mount/unmount komponen ini tiap ganti tab. App.jsx sendiri
 // tidak pernah unmount selama sesi berjalan, jadi progres yang dihitung di sana aman dipakai
 // bersama oleh bar di halaman ini maupun pill status yang tampil di halaman lain.
-export default function ShortsStudioView({ onShortCreated, genProgress, renderProgress, factCheckProgress }) {
+export default function ShortsStudioView({ onShortCreated, genProgress, renderProgress, factCheckProgress, fixNarrationProgress }) {
   const studio = useStudioState();
   const {
     topic, niche, tone, themeId, privacyStatus, targetDuration, videoProvider,
@@ -282,6 +282,7 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
               label={isFactChecking ? 'Memeriksa klaim di naskah' : 'Cek fakta selesai'}
             />
           )}
+          {isFactChecking && <GeneratingPlaceholder variant="factcheck" />}
 
           {isNarrativeNiche && !factCheck && (
             <p className="hint">Niche ini cenderung cerita fiksi — klaim faktual mungkin memang tidak ada.</p>
@@ -328,6 +329,16 @@ export default function ShortsStudioView({ onShortCreated, genProgress, renderPr
                     : (<><Wand2 size={13} /> Perbaiki {problemClaims.length} klaim bermasalah</>)}
                 </button>
               )}
+
+              {fixNarrationProgress?.visible && (
+                <ProgressBar
+                  percent={fixNarrationProgress.percent}
+                  remaining={fixNarrationProgress.remaining}
+                  isReal={fixNarrationProgress.isReal}
+                  label={isFixingNarration ? 'Merevisi naskah sesuai hasil cek fakta' : 'Naskah selesai direvisi'}
+                />
+              )}
+              {isFixingNarration && <GeneratingPlaceholder variant="factfix" />}
             </div>
           )}
 

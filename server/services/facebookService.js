@@ -191,6 +191,26 @@ class FacebookService {
   }
 
   /**
+   * Terbitkan video yang sebelumnya diupload sebagai draft (unpublished). Video unpublished
+   * lewat Graph API tidak muncul di tab "Draf" Meta Business Suite (tab itu cuma untuk
+   * postingan yang dicompose langsung di Business Suite), jadi ini jalan resmi untuk
+   * publish-nya: cukup panggil ulang endpoint video dengan published=true.
+   */
+  async publishVideo(videoId) {
+    if (!videoId) return { success: false, message: 'Video ID tidak ada.' };
+    if (!this.isConnected) return { success: false, message: 'Facebook Page belum terhubung.' };
+    try {
+      await axios.post(`https://graph.facebook.com/${GRAPH_API_VERSION}/${videoId}`, null, {
+        params: { published: 'true', access_token: this.pageAccessToken },
+        timeout: 15000
+      });
+      return { success: true };
+    } catch (error) {
+      return { success: false, message: this.describeUploadError(error.response?.data, error.message) };
+    }
+  }
+
+  /**
    * Terjemahkan error mentah Graph API jadi kalimat actionable — pesan asli Facebook (mis.
    * "Error validating access token") sering tidak cukup jelas soal apa yang harus dilakukan.
    */

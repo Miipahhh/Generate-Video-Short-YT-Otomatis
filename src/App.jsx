@@ -42,8 +42,22 @@ export default function App() {
   // jadi tau-nya dibikin jauh lebih kecil supaya bar-nya kelihatan bergerak wajar, bukan
   // merambat lambat seperti proses berat.
   const factCheckProgress = useProgress(studio.isFactChecking, { tau: 12 });
-  const activeStudioProgress = studio.isGenerating ? genProgress : renderProgress;
-  const showStudioPill = activeTab !== 'studio' && (studio.isGenerating || studio.isRendering);
+  // Perbaikan naskah (revisi klaim bermasalah) manggil AI buat menulis ulang bagian yang
+  // meragukan/keliru — lebih berat dari cek fakta (yang cuma menilai, bukan menulis ulang),
+  // tapi lebih ringan dari generate naskah penuh dari nol, jadi tau-nya di tengah-tengah.
+  const fixNarrationProgress = useProgress(studio.isFixingNarration, { tau: 20 });
+  // Urutan alurnya memang tidak pernah tumpang tindih (generate → cek fakta → perbaiki →
+  // render), jadi rantai ternary ini aman dipakai buat milih progres mana yang lagi aktif.
+  const activeStudioProgress = studio.isGenerating
+    ? genProgress
+    : studio.isRendering
+      ? renderProgress
+      : studio.isFactChecking
+        ? factCheckProgress
+        : fixNarrationProgress;
+  const showStudioPill = activeTab !== 'studio' && (
+    studio.isGenerating || studio.isRendering || studio.isFactChecking || studio.isFixingNarration
+  );
 
   useEffect(() => {
     initStudio();
@@ -175,7 +189,13 @@ export default function App() {
         <button className="studio-pill" onClick={() => goTo('studio')}>
           <span className="spinner" />
           <span>
-            {studio.isGenerating ? 'Menyusun naskah…' : 'Merender video…'} {Math.round(activeStudioProgress.percent)}%
+            {studio.isGenerating
+              ? 'Menyusun naskah…'
+              : studio.isRendering
+                ? 'Merender video…'
+                : studio.isFactChecking
+                  ? 'Mengecek fakta…'
+                  : 'Memperbaiki naskah…'} {Math.round(activeStudioProgress.percent)}%
           </span>
         </button>
       )}
@@ -187,9 +207,13 @@ export default function App() {
             onNavigate={setActiveTab}
             isGenerating={studio.isGenerating}
             isRendering={studio.isRendering}
+            isFactChecking={studio.isFactChecking}
+            isFixingNarration={studio.isFixingNarration}
             videoProvider={studio.videoProvider}
             genProgress={genProgress}
             renderProgress={renderProgress}
+            factCheckProgress={factCheckProgress}
+            fixNarrationProgress={fixNarrationProgress}
           />
         )}
         {activeTab === 'studio' && (
@@ -198,6 +222,7 @@ export default function App() {
             genProgress={genProgress}
             renderProgress={renderProgress}
             factCheckProgress={factCheckProgress}
+            fixNarrationProgress={fixNarrationProgress}
           />
         )}
         {activeTab === 'scheduler' && <SchedulerView onShortCreated={handleShortCreated} />}

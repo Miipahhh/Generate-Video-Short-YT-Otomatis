@@ -242,7 +242,17 @@ class MoneyPrinterService {
         // resource/fonts/) jauh lebih cocok buat teks Latin/Indonesia dan lebih tebal/viral —
         // stroke hitam diperbesar juga supaya captionnya kelihatan "sudah diedit", bukan teks
         // polos nempel di video.
-        subtitle_position: 'bottom',
+        // custom_position adalah persentase posisi TEPI ATAS kotak teks (bukan tengah/bawahnya),
+        // lihat rumus di video.py: custom_y = (video_height - clip.h) * (custom_position/100).
+        // 'bottom' bawaan (video_height*0.95) nyaris nempel tepi bawah — ketutup UI Facebook/IG
+        // Reels (nama akun, caption asli, ikon like/comment/share). custom_position:70 juga masih
+        // ketiban. custom_position:58 sudah aman dari UI, TAPI tepi bawah teks jadi cuma ~62% dan
+        // pusat teks ~57% — itu sudah masuk area TENGAH layar, bukan sepertiga bawah, jadi terasa
+        // aneh/ganggu saat ditonton (nutupin subjek utama video yang biasanya ada di tengah).
+        // 75 adalah titik tengah yang pas: tepi bawah teks ~77% tinggi layar — tetap kerasa
+        // seperti caption biasa di sepertiga bawah, tapi masih ada jarak aman dari UI di bawahnya.
+        subtitle_position: 'custom',
+        custom_position: 75,
         font_name: 'BeVietnamPro-Bold.ttf',
         font_size: 72,
         text_fore_color: '#FFFFFF',

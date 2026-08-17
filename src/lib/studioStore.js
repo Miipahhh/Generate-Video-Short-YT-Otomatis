@@ -499,12 +499,14 @@ export function getProblemClaims() {
 
 // Kirim naskah + klaim bermasalah ke AI, minta direvisi HANYA bagian yang bermasalah
 // (gaya bahasa, urutan, jumlah scene dipertahankan). Hasil cek fakta lama dibuang karena
-// sudah tidak relevan dengan naskah yang baru — user perlu klik "Cek fakta" lagi kalau mau
-// memastikan hasil revisinya sudah bersih, bukan diklaim otomatis "sudah benar" tanpa dicek ulang.
+// sudah tidak relevan dengan naskah yang baru, lalu factCheckScript() dipanggil ulang
+// otomatis di sini (bukan diklaim "sudah benar" tanpa dicek ulang) — jadi user cukup sekali
+// klik "Perbaiki", hasil cek fakta terbaru langsung tampil tanpa perlu klik "Cek fakta" lagi.
 export async function applyFactCheckFixes() {
   const problemClaims = getProblemClaims();
   if (!state.result || problemClaims.length === 0 || state.isFixingNarration) return;
   setState({ isFixingNarration: true });
+  let fixed = false;
   try {
     const res = await axios.post('/api/ai/fix-narration', {
       title: state.result.title,
@@ -518,11 +520,15 @@ export async function applyFactCheckFixes() {
     });
     if (res.data?.success) {
       setState({ result: res.data.data, factCheck: null, videoUrl: null, fallbackReason: null });
-      toast.success('Naskah diperbarui sesuai hasil cek fakta. Cek fakta lagi kalau mau memastikan.', { duration: 5000 });
+      fixed = true;
     }
   } catch (error) {
     toast.error(error.response?.data?.message || 'Gagal memperbaiki naskah.');
   } finally {
     setState({ isFixingNarration: false });
+  }
+  if (fixed) {
+    toast.success('Naskah diperbarui, mengecek ulang fakta…', { duration: 3000 });
+    await factCheckScript();
   }
 }

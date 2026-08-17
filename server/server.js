@@ -275,6 +275,42 @@ app.post('/api/shorts/:id/upload', async (req, res) => {
   }
 });
 
+// Terbitkan video yang statusnya masih draft (unpublished) di Facebook — dipakai tombol
+// "Publish" per item di Riwayat. Video unpublished lewat Graph API tidak muncul di tab "Draf"
+// Meta Business Suite, jadi ini jalan resminya tanpa perlu bolak-balik ke Graph API Explorer.
+app.post('/api/shorts/:id/publish', async (req, res) => {
+  const target = shortsHistory.find((s) => s.id === req.params.id);
+  if (!target) return res.status(404).json({ success: false, message: 'Short tidak ditemukan di riwayat.' });
+  const videoId = target.uploadResult?.videoId;
+  if (!videoId) return res.status(400).json({ success: false, message: 'Video ini belum diupload ke Facebook.' });
+
+  const result = await facebookService.publishVideo(videoId);
+  if (result.success) {
+    target.uploadResult.privacyStatus = 'public';
+    dbService.saveHistory(shortsHistory);
+  }
+  res.json(result);
+});
+
+// Terbitkan semua video draft sekaligus — dipakai tombol "Publish semua draft" di Riwayat,
+// supaya tidak perlu klik satu-satu kalau draft-nya banyak.
+app.post('/api/shorts/publish-drafts', async (req, res) => {
+  const drafts = shortsHistory.filter(
+    (s) => s.uploadResult?.privacyStatus === 'draft' && s.uploadResult?.videoId
+  );
+  const results = [];
+  for (const target of drafts) {
+    const result = await facebookService.publishVideo(target.uploadResult.videoId);
+    if (result.success) target.uploadResult.privacyStatus = 'public';
+    results.push({ id: target.id, title: target.title, ...result });
+  }
+  if (results.some((r) => r.success)) dbService.saveHistory(shortsHistory);
+  res.json({
+    success: true,
+    data: { total: drafts.length, published: results.filter((r) => r.success).length, results }
+  });
+});
+
 // Hapus Short dari Riwayat — file MP4 di disk ikut dihapus (bukan cuma catatan riwayatnya),
 // sesuai yang dijanjikan dialog konfirmasi di UI ("File MP4-nya tidak bisa dikembalikan").
 // Tanpa ini, video lama menumpuk permanen di public/videos walau sudah "dihapus" dari riwayat.

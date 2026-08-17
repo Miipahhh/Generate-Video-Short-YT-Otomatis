@@ -47,7 +47,8 @@ function HealthDot({ label, alive, note }) {
 
 export default function DashboardView({
   systemStatus, onNavigate,
-  isGenerating, isRendering, videoProvider, genProgress, renderProgress
+  isGenerating, isRendering, isFactChecking, isFixingNarration, videoProvider,
+  genProgress, renderProgress, factCheckProgress, fixNarrationProgress
 }) {
   const scheduler = systemStatus?.schedulerConfig;
   const facebook = systemStatus?.facebookStatus;
@@ -150,21 +151,27 @@ export default function DashboardView({
         </div>
       )}
 
-      {(isGenerating || isRendering) && (
+      {(isGenerating || isRendering || isFactChecking || isFixingNarration) && (
         <div className="card" style={{ marginBottom: 16, cursor: 'pointer' }} onClick={() => onNavigate('studio')}>
           <div className="card-head head-row">
             <div>
               <h2 className="card-title">
-                {isGenerating ? 'Menyusun naskah…' : `Merender video… (${PROVIDER_LABEL[videoProvider] || videoProvider})`}
+                {isGenerating
+                  ? 'Menyusun naskah…'
+                  : isRendering
+                    ? `Merender video… (${PROVIDER_LABEL[videoProvider] || videoProvider})`
+                    : isFactChecking
+                      ? 'Mengecek fakta naskah…'
+                      : 'Memperbaiki naskah…'}
               </h2>
               <p className="card-sub">Klik untuk buka tab Studio.</p>
             </div>
           </div>
           <ProgressBar
-            percent={isGenerating ? genProgress.percent : renderProgress.percent}
-            remaining={isGenerating ? genProgress.remaining : renderProgress.remaining}
-            isReal={isGenerating ? genProgress.isReal : renderProgress.isReal}
-            label={isGenerating ? 'Menyusun naskah dengan AI' : 'Progres render'}
+            percent={isGenerating ? genProgress.percent : isRendering ? renderProgress.percent : isFactChecking ? factCheckProgress.percent : fixNarrationProgress.percent}
+            remaining={isGenerating ? genProgress.remaining : isRendering ? renderProgress.remaining : isFactChecking ? factCheckProgress.remaining : fixNarrationProgress.remaining}
+            isReal={isGenerating ? genProgress.isReal : isRendering ? renderProgress.isReal : isFactChecking ? factCheckProgress.isReal : fixNarrationProgress.isReal}
+            label={isGenerating ? 'Menyusun naskah dengan AI' : isRendering ? 'Progres render' : isFactChecking ? 'Memeriksa klaim di naskah' : 'Merevisi naskah sesuai hasil cek fakta'}
           />
         </div>
       )}
